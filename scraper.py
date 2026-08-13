@@ -1,0 +1,96 @@
+"""
+Сбор данных со страницы поиска Avito через Playwright.
+Используются атрибуты data-marker — они меняются реже, чем CSS-классы.
+"""
+
+import re
+import random
+import time
+
+from playwright.sync_api import sync_playwright
+
+import config
+
+USER_AGENT = (
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+    "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"
+)
+
+
+def _sleep_human():
+    time.sleep(random.uniform(config.MIN_DELAY, config.MAX_DELAY))
+
+
+def _extract_id(url: str) -> str:
+    """Достаёт числовой ID объявления из ссылки вида .../item_1234567890"""
+    match = re.search(r"_(\d+)(?:[/?]|$)", url)
+    return match.group(1) if match else url
+
+
+def _parse_card(card) -> dict | None:
+    title_el = card.query_selector('[data-marker="item-title"]')
+    if not title_el:
+        return None
+
+    title = title_el.inner_text().strip()
+    href = title_el.get_attribute("href")
+    if not href:
+        return None
+    url = href if href.startswith("http") else f"https://www.avito.ru{href}"
+
+    price_el = card.query_selector('[data-marker="item-price"]')
+    price_text = price_el.inner_text() if price_el else ""
+    price_digits = re.sub(r"\D", "", price_text)
+    price = int(price_digits) if price_digits else None
+
+    img_el = card.query_selector("img")
+    photo = img_el.get_attribute("src") if img_el else None
+
+    return {
+        "id": _extract_id(url),
+        "title": title,
+        "price": price,
+        "url": url,
+        "photo": photo,
+    }
+
+
+def fetch_search_results(page, search_url: str) -> list[dict]:
+    page.goto(search_url, wait_until="domcontentloaded")
+    _sleep_human()
+    page.wait_for_selector('[data-marker="item"]', timeout=15000)
+
+    cards = page.query_selector_all('[data-marker="item"]')
+    items = []
+    for card in cards:
+        parsed = _parse_card(card)
+        if parsed:
+            items.append(parsed)
+    return items
+
+
+def fetch_description(page, item_url: str) -> str:
+    page.goto(item_url, wait_until="domcontentloaded")
+    _sleep_human()
+    desc_el = page.query_selector('[data-marker="item-view/item-description"]')
+    return desc_el.inner_text().strip() if desc_el else ""
+
+
+def run_once(search_url: str, fetch_descriptions: bool = True) -> list[dict]:
+    """Один полный проход: открыть браузер -> собрать карточки -> закрыть браузер."""
+    with sync_playwright() as p:
+        browser = p.chromium.launch(headless=config.HEADLESS)
+        context = browser.new_context(user_agent=USER_AGENT, locale="ru-RU")
+        page = context.new_page()
+
+        items = fetch_search_results(page, search_url)
+
+        if fetch_descriptions:
+            for item in items:
+                try:
+                    item["description"] = fetch_description(page, item["url"])
+                except Exception:
+                    item["description"] = ""
+
+        browser.close()
+        return items
