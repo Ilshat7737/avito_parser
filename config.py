@@ -3,6 +3,12 @@
 Отредактируйте под свою задачу — это единственный файл, который обычно нужно менять.
 """
 
+import os
+
+from dotenv import load_dotenv
+
+load_dotenv()
+
 # Ссылка на страницу поиска Avito.
 # Проще всего: откройте avito.ru, настройте фильтры (город, категория, цена и т.д.)
 # и скопируйте адрес из строки браузера сюда.
@@ -10,7 +16,8 @@ SEARCH_URL = "https://www.avito.ru/moskva?q=iphone"
 
 # Как часто проверять (в секундах). Не ставьте слишком маленький интервал —
 # частые запросы повышают риск блокировки по IP.
-CHECK_INTERVAL_SEC = 300  # 5 минут
+CHECK_INTERVAL_SEC = 60  # 1 минута — осознанный риск, см. спеку раздел
+                          # "Осознанно принятый риск: интервал в 1 минуту"
 
 # Случайный разброс к интервалу (секунды), чтобы запросы шли не строго по расписанию
 INTERVAL_JITTER_SEC = 60
@@ -35,3 +42,7 @@ MAX_DELAY = 4.0
 TELEGRAM_ENABLED = False
 TELEGRAM_BOT_TOKEN = ""   # токен бота от @BotFather
 TELEGRAM_CHAT_ID = ""     # ваш chat_id (узнать можно у @userinfobot)
+
+# --- LLM-агент релевантности (веб-режим поиска машин) ---
+ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
+AGENT_MODEL = os.environ.get("AGENT_MODEL", "claude-haiku-4-5-20251001")
