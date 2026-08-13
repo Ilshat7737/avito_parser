@@ -27,6 +27,21 @@ def _extract_id(url: str) -> str:
     return match.group(1) if match else url
 
 
+def _extract_mileage(params_text: str) -> int | None:
+    """Пробег — первый сегмент data-marker="item-specific-params",
+    например "42 313 км, 1.6 MT (106 л.с.), универсал, передний, бензин"."""
+    first_segment = params_text.split(",")[0]
+    digits = re.sub(r"\D", "", first_segment)
+    return int(digits) if digits else None
+
+
+def _extract_year(title: str) -> int | None:
+    """Год выпуска на карточке отдельным маркером не отдаётся — он есть
+    только в заголовке, например "..., 2019, 42 313 км"."""
+    match = re.search(r"\b(19|20)\d{2}\b", title)
+    return int(match.group(0)) if match else None
+
+
 def _parse_card(card) -> dict | None:
     title_el = card.query_selector('[data-marker="item-title"]')
     if not title_el:
@@ -46,12 +61,18 @@ def _parse_card(card) -> dict | None:
     img_el = card.query_selector("img")
     photo = img_el.get_attribute("src") if img_el else None
 
+    params_el = card.query_selector('[data-marker="item-specific-params"]')
+    mileage = _extract_mileage(params_el.inner_text()) if params_el else None
+    year = _extract_year(title)
+
     return {
         "id": _extract_id(url),
         "title": title,
         "price": price,
         "url": url,
         "photo": photo,
+        "mileage": mileage,
+        "year": year,
     }
 
 
