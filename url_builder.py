@@ -22,9 +22,16 @@ import config
 BASE_URL = "https://www.avito.ru/{city}/avtomobili"
 TYPE_RETRIES = 2
 
+# Паузы между действиями ВНУТРИ уже загруженной страницы (между полями
+# формы, до нажатия Tab и т.п.) — это не отдельные запросы страницы, а
+# внутристраничное взаимодействие, поэтому не связаны с config.MIN_DELAY/
+# MAX_DELAY (те регулируют паузу МЕЖДУ запросами страниц в scraper.py).
+FIELD_PAUSE_MIN = 1.0
+FIELD_PAUSE_MAX = 2.5
 
-def _sleep_human():
-    time.sleep(random.uniform(config.MIN_DELAY, config.MAX_DELAY))
+
+def _field_pause():
+    time.sleep(random.uniform(FIELD_PAUSE_MIN, FIELD_PAUSE_MAX))
 
 
 def _human_scroll(page, distance: int = 300, steps: int = 5):
@@ -75,17 +82,17 @@ def _type_like_human(page, locator, text: str, verify_digits: bool = True):
 def _fill_range(page, from_marker: str, to_marker: str, min_value, max_value):
     if min_value is not None:
         _type_like_human(page, page.locator(f'[data-marker="{from_marker}/input"]'), str(min_value))
-        _sleep_human()
+        _field_pause()
     if max_value is not None:
         _type_like_human(page, page.locator(f'[data-marker="{to_marker}/input"]'), str(max_value))
-        _sleep_human()
+        _field_pause()
 
 
 def _select_brand(page, brand: str):
     search_input = page.locator('[data-marker="params[110000]/multiselect-outline-input/input"]')
     # Марка — не число, цифровую сверку значения тут применить нельзя
     _type_like_human(page, search_input, brand, verify_digits=False)
-    _sleep_human()
+    _field_pause()
 
     checkbox = page.locator(
         '[data-marker^="params[110000]/multiselect-button-checkbox"]',
@@ -137,7 +144,7 @@ def build_search_url(
             page.goto(start_url, wait_until="domcontentloaded")
             before_url = page.url
 
-            _sleep_human()
+            _field_pause()
             _human_scroll(page)
 
             if brand:

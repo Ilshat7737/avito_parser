@@ -1,10 +1,13 @@
 import type { Status } from "../types";
 
 export function StatusBar({ status }: { status: Status }) {
+  // При MIN_DELAY/MAX_DELAY = 20-30 сек между запросами страниц (config.py)
+  // цикл с несколькими новыми объявлениями может легко занять 10+ минут —
+  // порог "поток мог остановиться" должен быть заметно больше этого.
   const stale =
     !status.paused &&
     status.last_check !== null &&
-    Date.now() - new Date(status.last_check).getTime() > 5 * 60 * 1000;
+    Date.now() - new Date(status.last_check).getTime() > 30 * 60 * 1000;
 
   return (
     <div
