@@ -46,26 +46,27 @@ def build_search_url(
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=config.HEADLESS)
-        context = browser.new_context(locale="ru-RU")
-        page = context.new_page()
-        page.goto(start_url, wait_until="domcontentloaded")
-
-        if brand:
-            _select_brand(page, brand)
-
-        _fill_range(page, "price-from", "price-to", price_min, price_max)
-        _fill_range(page, "params[164669]-from", "params[164669]-to", year_min, year_max)
-        _fill_range(page, "params[2687]-from", "params[2687]-to", mileage_min, mileage_max)
-
-        page.keyboard.press("Tab")
-        before_url = page.url
         try:
-            page.wait_for_function(
-                "url => location.href !== url", arg=before_url, timeout=8000
-            )
-        except Exception:
-            pass  # фильтры могли не менять URL (например, ничего не задано)
+            context = browser.new_context(locale="ru-RU")
+            page = context.new_page()
+            page.goto(start_url, wait_until="domcontentloaded")
 
-        result_url = page.url
-        browser.close()
-        return result_url
+            if brand:
+                _select_brand(page, brand)
+
+            _fill_range(page, "price-from", "price-to", price_min, price_max)
+            _fill_range(page, "params[164669]-from", "params[164669]-to", year_min, year_max)
+            _fill_range(page, "params[2687]-from", "params[2687]-to", mileage_min, mileage_max)
+
+            page.keyboard.press("Tab")
+            before_url = page.url
+            try:
+                page.wait_for_function(
+                    "url => location.href !== url", arg=before_url, timeout=8000
+                )
+            except Exception:
+                pass  # фильтры могли не менять URL (например, ничего не задано)
+
+            return page.url
+        finally:
+            browser.close()
