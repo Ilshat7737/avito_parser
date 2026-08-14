@@ -204,3 +204,32 @@ def test_get_all_listings_returns_every_row_regardless_of_relevance(conn):
 
     all_listings = db.get_all_listings(conn)
     assert {item["id"] for item in all_listings} == {"1", "2", "3"}
+
+
+def test_get_conn_migrates_old_worker_status_schema(tmp_path):
+    # Симулируем файл БД от старой версии кода: только id/last_check/last_count,
+    # без paused/pause_reason/last_error/scanning.
+    db_path = str(tmp_path / "old.db")
+    old_conn = sqlite3.connect(db_path)
+    old_conn.execute(
+        """CREATE TABLE worker_status (
+               id INTEGER PRIMARY KEY CHECK (id = 1),
+               last_check TEXT,
+               last_count INTEGER
+           )"""
+    )
+    old_conn.execute("INSERT INTO worker_status (id, last_check, last_count) VALUES (1, '2026-01-01T00:00:00', 42)")
+    old_conn.commit()
+    old_conn.close()
+
+    conn = db.get_conn(db_path)
+    status = db.get_status(conn)
+    assert status["last_count"] == 42  # старые данные не потерялись
+    assert status["paused"] is False
+    assert status["pause_reason"] is None
+    assert status["last_error"] is None
+    assert status["scanning"] is False
+
+    # и новые функции теперь работают без sqlite3.OperationalError
+    db.set_paused(conn, True, "manual")
+    assert db.get_status(conn)["paused"] is True

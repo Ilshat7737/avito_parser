@@ -62,12 +62,30 @@ CREATE TABLE IF NOT EXISTS worker_status (
 """
 
 
+def _migrate_worker_status(conn: sqlite3.Connection):
+    """CREATE TABLE IF NOT EXISTS не добавляет новые столбцы в уже
+    существующую таблицу — если worker_status создана более старой
+    версией кода (файл БД пережил несколько обновлений схемы), добавляем
+    недостающие столбцы вручную, чтобы не заставлять пользователя
+    вручную удалять файл БД при каждом обновлении."""
+    existing = {row[1] for row in conn.execute("PRAGMA table_info(worker_status)")}
+    for column, ddl in (
+        ("paused", "ALTER TABLE worker_status ADD COLUMN paused INTEGER DEFAULT 0"),
+        ("pause_reason", "ALTER TABLE worker_status ADD COLUMN pause_reason TEXT"),
+        ("last_error", "ALTER TABLE worker_status ADD COLUMN last_error TEXT"),
+        ("scanning", "ALTER TABLE worker_status ADD COLUMN scanning INTEGER DEFAULT 0"),
+    ):
+        if column not in existing:
+            conn.execute(ddl)
+
+
 def get_conn(db_path: str) -> sqlite3.Connection:
     conn = sqlite3.connect(db_path, check_same_thread=False)
     conn.execute(SCHEMA)
     conn.execute(SEEN_IDS_SCHEMA)
     conn.execute(SEARCH_CONFIG_SCHEMA)
     conn.execute(WORKER_STATUS_SCHEMA)
+    _migrate_worker_status(conn)
     conn.commit()
     return conn
 
