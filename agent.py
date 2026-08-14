@@ -74,5 +74,11 @@ def evaluate_listings(items: list[dict], query_text: str) -> dict[str, dict]:
     for block in response.content:
         if block.type == "tool_use" and block.name == "submit_relevance":
             results = block.input.get("results", [])
-            return {r["id"]: {"relevant": r["relevant"], "reason": r["reason"]} for r in results}
+            verdicts = {}
+            for r in results:
+                try:
+                    verdicts[r["id"]] = {"relevant": r["relevant"], "reason": r["reason"]}
+                except (KeyError, TypeError):
+                    continue
+            return verdicts
     return {}
