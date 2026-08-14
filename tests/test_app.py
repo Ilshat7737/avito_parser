@@ -1,0 +1,83 @@
+import sqlite3
+
+import pytest
+
+import app as app_module
+import db
+
+
+@pytest.fixture
+def conn():
+    c = sqlite3.connect(":memory:")
+    c.execute(db.SCHEMA)
+    c.execute(db.SEEN_IDS_SCHEMA)
+    c.execute(db.SEARCH_CONFIG_SCHEMA)
+    c.execute(db.WORKER_STATUS_SCHEMA)
+    c.commit()
+    return c
+
+
+@pytest.fixture
+def client(conn):
+    flask_app = app_module.create_app(conn)
+    flask_app.testing = True
+    return flask_app.test_client()
+
+
+def test_api_status_returns_defaults_when_no_checks_yet(client):
+    resp = client.get("/api/status")
+    assert resp.status_code == 200
+    assert resp.get_json() == {"last_check": None, "last_count": 0}
+
+
+def test_api_listings_returns_only_relevant_by_default(client, conn):
+    db.upsert_new(conn, {"id": "1", "title": "Relevant", "price": 100, "url": "u1", "relevant": 1})
+    db.upsert_new(conn, {"id": "2", "title": "Rejected", "price": 100, "url": "u2", "relevant": 0})
+
+    resp = client.get("/api/listings")
+    ids = [item["id"] for item in resp.get_json()]
+    assert ids == ["1"]
+
+    resp_all = client.get("/api/listings?include_rejected=1")
+    ids_all = {item["id"] for item in resp_all.get_json()}
+    assert ids_all == {"1", "2"}
+
+
+def test_api_config_post_saves_config_and_calls_url_builder(client, conn, monkeypatch):
+    monkeypatch.setattr(
+        app_module, "build_search_url",
+        lambda **kwargs: "https://www.avito.ru/kazan/avtomobili?f=abc",
+    )
+    resp = client.post("/api/config", json={"city": "kazan", "brand": "Kia", "price_min": 500000})
+
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert body["search_url"] == "https://www.avito.ru/kazan/avtomobili?f=abc"
+    assert db.get_search_config(conn)["city"] == "kazan"
+
+
+def test_api_config_post_returns_400_and_keeps_old_url_on_builder_failure(client, conn, monkeypatch):
+    db.save_search_config(conn, {"city": "kazan", "search_url": "https://old-url"})
+
+    def fail(**kwargs):
+        raise RuntimeError("Playwright timeout")
+    monkeypatch.setattr(app_module, "build_search_url", fail)
+
+    resp = client.post("/api/config", json={"city": "kazan"})
+
+    assert resp.status_code == 400
+    assert db.get_search_config(conn)["search_url"] == "https://old-url"
+
+
+def test_api_rescore_updates_relevance(client, conn, monkeypatch):
+    db.upsert_new(conn, {"id": "1", "title": "Kia Rio", "price": 700000, "url": "u1"})
+    monkeypatch.setattr(
+        app_module.agent, "evaluate_listings",
+        lambda items, query_text: {"1": {"relevant": True, "reason": "Подходит"}},
+    )
+
+    resp = client.post("/api/rescore")
+
+    assert resp.status_code == 200
+    assert resp.get_json() == {"rescored": 1}
+    assert db.get_listing(conn, "1")["relevant"] == 1
