@@ -50,5 +50,7 @@ TELEGRAM_BOT_TOKEN = ""   # токен бота от @BotFather
 TELEGRAM_CHAT_ID = ""     # ваш chat_id (узнать можно у @userinfobot)
 
 # --- LLM-агент релевантности (веб-режим поиска машин) ---
-ANTHROPIC_API_KEY = os.environ.get("ANTHROPIC_API_KEY", "")
-AGENT_MODEL = os.environ.get("AGENT_MODEL", "claude-haiku-4-5-20251001")
+# Ключ берётся в Google AI Studio (aistudio.google.com) — бесплатно, без
+# привязки карты для базового бесплатного тарифа.
+GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "")
+AGENT_MODEL = os.environ.get("AGENT_MODEL", "gemini-flash-latest")

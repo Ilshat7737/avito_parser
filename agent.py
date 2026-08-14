@@ -1,52 +1,51 @@
 """
 Батч-оценка релевантности новых объявлений текстовому уточнению пользователя
-через Claude Haiku 4.5 (tool use — структурированный ответ, не свободный текст).
-Большие списки бьются на батчи по BATCH_SIZE, чтобы ответ не обрезался по max_tokens.
+через Gemini Flash (структурированный JSON-ответ через response_schema, не
+свободный текст). Большие списки бьются на батчи по BATCH_SIZE — иначе
+можно упереться и в лимит вывода, и в лимит запросов/минуту бесплатного
+тарифа Gemini.
 """
 
-import anthropic
+import time
+
+from google import genai
+from google.genai import types
+from pydantic import BaseModel
 
 import config
 from notify import console_log
 
-client = anthropic.Anthropic(api_key=config.ANTHROPIC_API_KEY)
+client = genai.Client(api_key=config.GEMINI_API_KEY)
 
 BATCH_SIZE = 15
+# Пауза между батчами (сек) — бесплатный тариф Gemini ограничен по запросам
+# в минуту; без паузы «Переоценить» на почти полной таблице (100 записей =
+# 7 батчей) может упереться в этот лимит.
+BATCH_DELAY_SEC = 1.5
 
-EVALUATE_TOOL = {
-    "name": "submit_relevance",
-    "description": "Вернуть релевантность и краткое обоснование для каждого объявления из списка.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "results": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "id": {"type": "string"},
-                        "relevant": {"type": "boolean"},
-                        "reason": {"type": "string"},
-                    },
-                    "required": ["id", "relevant", "reason"],
-                },
-            }
-        },
-        "required": ["results"],
-    },
-}
+
+class ListingVerdict(BaseModel):
+    id: str
+    relevant: bool
+    reason: str
+
+
+class EvaluationResult(BaseModel):
+    results: list[ListingVerdict]
 
 
 def evaluate_listings(items: list[dict], query_text: str) -> dict[str, dict]:
     """Возвращает {id: {"relevant": bool, "reason": str}} для каждого id из
     items. При ошибке API возвращает {} для соответствующего батча — те
     карточки останутся неоценёнными и будут обработаны в следующем цикле.
-    Список бьётся на батчи по BATCH_SIZE, чтобы не упереться в max_tokens."""
+    Список бьётся на батчи по BATCH_SIZE, чтобы не упереться в лимиты."""
     if not items:
         return {}
 
     verdicts: dict[str, dict] = {}
     for start in range(0, len(items), BATCH_SIZE):
+        if start > 0:
+            time.sleep(BATCH_DELAY_SEC)
         batch = items[start:start + BATCH_SIZE]
         verdicts.update(_evaluate_batch(batch, query_text))
     return verdicts
@@ -68,37 +67,41 @@ def _evaluate_batch(items: list[dict], query_text: str) -> dict[str, dict]:
         f"Критерий пользователя: {query_text}\n\n"
         "Ниже список объявлений о продаже машин. Для КАЖДОГО id из списка "
         "определи, соответствует ли оно критерию пользователя, и коротко "
-        "(1 предложение, на русском) объясни решение. Верни результат "
-        "вызовом инструмента submit_relevance для всех id без исключения.\n\n"
+        "(1 предложение, на русском) объясни решение. Верни вердикт для "
+        "всех id без исключения.\n\n"
         + "\n---\n".join(listing_blocks)
     )
 
     try:
-        response = client.messages.create(
+        response = client.models.generate_content(
             model=config.AGENT_MODEL,
-            max_tokens=4096,
-            tools=[EVALUATE_TOOL],
-            tool_choice={"type": "tool", "name": "submit_relevance"},
-            messages=[{"role": "user", "content": prompt}],
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=EvaluationResult,
+                max_output_tokens=4096,
+            ),
         )
     except Exception as e:
         console_log(f"Ошибка вызова агента релевантности: {e}")
         return {}
 
-    if getattr(response, "stop_reason", None) == "max_tokens":
+    finish_reason = None
+    if response.candidates:
+        finish_reason = getattr(response.candidates[0], "finish_reason", None)
+    if getattr(finish_reason, "name", None) == "MAX_TOKENS":
         console_log(
             f"Предупреждение: ответ агента обрезан по max_tokens "
             f"(батч из {len(items)} объявлений) — часть оценок могла не дойти"
         )
 
-    for block in response.content:
-        if block.type == "tool_use" and block.name == "submit_relevance":
-            results = block.input.get("results", [])
-            verdicts = {}
-            for r in results:
-                try:
-                    verdicts[r["id"]] = {"relevant": r["relevant"], "reason": r["reason"]}
-                except (KeyError, TypeError):
-                    continue
-            return verdicts
-    return {}
+    try:
+        parsed = response.parsed
+    except Exception as e:
+        console_log(f"Не удалось разобрать ответ агента: {e}")
+        return {}
+
+    if parsed is None:
+        return {}
+
+    return {v.id: {"relevant": v.relevant, "reason": v.reason} for v in parsed.results}
