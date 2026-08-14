@@ -35,6 +35,11 @@ DB_PATH = "avito_monitor.db"
 # наоборот.
 WEB_DB_PATH = os.environ.get("WEB_DB_PATH", "avito_monitor_web.db")
 
+# Порт веб-интерфейса (app.py). НЕ 5000 по умолчанию — на macOS (Monterey и
+# новее) порт 5000 системно занят AirPlay Receiver, который отвечает
+# браузеру 403 Forbidden вместо нашего Flask-приложения.
+WEB_PORT = int(os.environ.get("WEB_PORT", "5050"))
+
 # False = показывать окно браузера. Так Avito реже считает сессию ботом,
 # чем в headless-режиме.
 HEADLESS = False

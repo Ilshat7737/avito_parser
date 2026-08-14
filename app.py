@@ -109,7 +109,7 @@ def main():
     thread.start()
 
     flask_app = create_app(conn)
-    flask_app.run(host="127.0.0.1", port=5000, debug=False)
+    flask_app.run(host="127.0.0.1", port=config.WEB_PORT, debug=False)
 
 
 if __name__ == "__main__":
