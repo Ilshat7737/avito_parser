@@ -98,6 +98,12 @@ def create_app(conn) -> Flask:
 
 def main():
     conn = db.get_conn(config.WEB_DB_PATH)
+    # На случай, если предыдущий запуск был прерван не штатно (например,
+    # процесс убит посреди цикла) — scanning=True мог остаться в БД
+    # навсегда, потому что db.set_scanning(conn, False) в worker.py
+    # выполняется в finally и не срабатывает при жёстком убийстве
+    # процесса. При старте ничего ещё не сканируется — сбрасываем явно.
+    db.set_scanning(conn, False)
     stop_event = threading.Event()
     thread = threading.Thread(target=background_loop, args=(conn, stop_event), daemon=True)
     thread.start()
