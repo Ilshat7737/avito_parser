@@ -101,8 +101,8 @@ def upsert_new(conn: sqlite3.Connection, item: dict):
 def update_price(conn: sqlite3.Connection, item_id: str, new_price: int):
     now = datetime.now().isoformat(timespec="seconds")
     conn.execute(
-        "UPDATE listings SET price = ?, last_price = ?, last_checked = ? WHERE id = ?",
-        (new_price, new_price, now, item_id),
+        "UPDATE listings SET last_price = price, price = ?, last_checked = ? WHERE id = ?",
+        (new_price, now, item_id),
     )
     conn.commit()
 
@@ -150,6 +150,12 @@ def get_relevant_listings(conn: sqlite3.Connection, include_rejected: bool = Fal
 
 def get_unevaluated_listings(conn: sqlite3.Connection) -> list[dict]:
     cur = conn.execute("SELECT * FROM listings WHERE agent_evaluated_at IS NULL")
+    cols = [d[0] for d in cur.description]
+    return [dict(zip(cols, row)) for row in cur.fetchall()]
+
+
+def get_all_listings(conn: sqlite3.Connection) -> list[dict]:
+    cur = conn.execute("SELECT * FROM listings")
     cols = [d[0] for d in cur.description]
     return [dict(zip(cols, row)) for row in cur.fetchall()]
 

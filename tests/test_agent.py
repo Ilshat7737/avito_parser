@@ -62,3 +62,36 @@ def test_evaluate_listings_skips_malformed_result_entries(monkeypatch):
     result = agent.evaluate_listings(items, "текст")
 
     assert result == {"111": {"relevant": True, "reason": "Подходит"}}
+
+
+def test_evaluate_listings_splits_large_batches_into_multiple_calls(monkeypatch):
+    call_count = {"n": 0}
+
+    def fake_create(**kwargs):
+        call_count["n"] += 1
+        prompt = kwargs["messages"][0]["content"]
+        ids_in_batch = [
+            line.split("=", 1)[1] for line in prompt.splitlines() if line.startswith("id=")
+        ]
+        fake_block = MagicMock()
+        fake_block.type = "tool_use"
+        fake_block.name = "submit_relevance"
+        fake_block.input = {
+            "results": [{"id": i, "relevant": True, "reason": "ok"} for i in ids_in_batch]
+        }
+        fake_response = MagicMock()
+        fake_response.content = [fake_block]
+        fake_response.stop_reason = "end_turn"
+        return fake_response
+
+    monkeypatch.setattr(agent.client.messages, "create", fake_create)
+
+    items = [
+        {"id": str(i), "title": f"Item {i}", "price": 100000, "year": 2020, "mileage": 10000, "description": ""}
+        for i in range(20)
+    ]
+    result = agent.evaluate_listings(items, "текст")
+
+    assert call_count["n"] == 2  # 20 items / BATCH_SIZE=15 -> 2 батча
+    assert len(result) == 20
+    assert all(v["relevant"] for v in result.values())

@@ -29,6 +29,12 @@ FETCH_FULL_DESCRIPTION = True
 # Путь к файлу базы данных (создастся автоматически)
 DB_PATH = "avito_monitor.db"
 
+# Отдельная БД для веб-режима (app.py) — не должна пересекаться с CLI-режимом
+# (main.py), у которого нет ни таблицы seen_ids, ни обрезки по 100 строк;
+# общая БД привела бы к порче лимита/dedup веб-режима записями из CLI и
+# наоборот.
+WEB_DB_PATH = os.environ.get("WEB_DB_PATH", "avito_monitor_web.db")
+
 # False = показывать окно браузера. Так Avito реже считает сессию ботом,
 # чем в headless-режиме.
 HEADLESS = False

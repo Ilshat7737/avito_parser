@@ -35,7 +35,9 @@ def create_app(conn) -> Flask:
 
     @flask_app.route("/api/config", methods=["POST"])
     def api_config_post():
-        payload = request.get_json(force=True)
+        payload = request.get_json(silent=True)
+        if payload is None:
+            return jsonify({"error": "Ожидается тело запроса в формате JSON"}), 400
         try:
             search_url = build_search_url(
                 city=payload["city"],
@@ -57,9 +59,14 @@ def create_app(conn) -> Flask:
     @flask_app.route("/api/rescore", methods=["POST"])
     def api_rescore():
         cfg = db.get_search_config(conn)
-        query_text = (cfg or {}).get("query_text") or ""
-        db.mark_all_for_rescore(conn)
-        items = db.get_unevaluated_listings(conn)
+        query_text = ((cfg or {}).get("query_text") or "").strip()
+        items = db.get_all_listings(conn)
+
+        if not query_text:
+            for item in items:
+                db.update_relevance(conn, item["id"], 1, "критерий не задан")
+            return jsonify({"rescored": len(items)})
+
         verdicts = agent.evaluate_listings(items, query_text)
         for item in items:
             verdict = verdicts.get(item["id"])
@@ -80,7 +87,7 @@ def create_app(conn) -> Flask:
 
 
 def main():
-    conn = db.get_conn(config.DB_PATH)
+    conn = db.get_conn(config.WEB_DB_PATH)
     stop_event = threading.Event()
     thread = threading.Thread(target=background_loop, args=(conn, stop_event), daemon=True)
     thread.start()

@@ -1,6 +1,7 @@
 __pycache__/
 *.pyc
 avito_monitor.db
+avito_monitor_web.db
 .env
 frontend/node_modules/
 frontend/dist/

@@ -38,7 +38,11 @@ def process_cycle(conn, items: list[dict], query_text: str, fetch_description_fn
     if not new_items:
         return
 
-    verdicts = agent.evaluate_listings(new_items, query_text)
+    stripped_query = query_text.strip()
+    if not stripped_query:
+        verdicts = {item["id"]: {"relevant": True, "reason": "критерий не задан"} for item in new_items}
+    else:
+        verdicts = agent.evaluate_listings(new_items, stripped_query)
 
     inserted_any = False
     for item in new_items:

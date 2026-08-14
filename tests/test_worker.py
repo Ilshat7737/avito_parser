@@ -79,6 +79,19 @@ def test_process_cycle_leaves_item_unstored_when_agent_call_fails(conn, monkeypa
     assert db.is_seen(conn, "4") is False  # попробуем снова в следующем цикле
 
 
+def test_process_cycle_skips_agent_when_query_text_is_blank(conn, monkeypatch):
+    def fail_if_called(items, query_text):
+        raise AssertionError("агент не должен вызываться при пустом критерии")
+    monkeypatch.setattr(worker.agent, "evaluate_listings", fail_if_called)
+
+    items = [{"id": "1", "title": "Kia Rio", "price": 700000, "url": "u1"}]
+    worker.process_cycle(conn, items, "   ", fake_fetch_description)
+
+    stored = db.get_listing(conn, "1")
+    assert stored is not None
+    assert stored["relevant"] == 1
+
+
 def test_process_cycle_evicts_after_inserting_new_items(conn, monkeypatch):
     for i in range(3):
         db.upsert_new(conn, {"id": str(i), "title": f"Item {i}", "price": 1000, "url": f"u{i}"})

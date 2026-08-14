@@ -71,6 +71,7 @@ def test_api_config_post_returns_400_and_keeps_old_url_on_builder_failure(client
 
 def test_api_rescore_updates_relevance(client, conn, monkeypatch):
     db.upsert_new(conn, {"id": "1", "title": "Kia Rio", "price": 700000, "url": "u1"})
+    db.save_search_config(conn, {"city": "kazan", "query_text": "тест"})
     monkeypatch.setattr(
         app_module.agent, "evaluate_listings",
         lambda items, query_text: {"1": {"relevant": True, "reason": "Подходит"}},
@@ -81,6 +82,26 @@ def test_api_rescore_updates_relevance(client, conn, monkeypatch):
     assert resp.status_code == 200
     assert resp.get_json() == {"rescored": 1}
     assert db.get_listing(conn, "1")["relevant"] == 1
+
+
+def test_api_rescore_skips_agent_when_query_text_is_empty(client, conn, monkeypatch):
+    db.upsert_new(conn, {"id": "1", "title": "Kia Rio", "price": 700000, "url": "u1"})
+
+    def fail_if_called(items, query_text):
+        raise AssertionError("агент не должен вызываться при пустом критерии")
+    monkeypatch.setattr(app_module.agent, "evaluate_listings", fail_if_called)
+
+    resp = client.post("/api/rescore")
+
+    assert resp.status_code == 200
+    assert resp.get_json() == {"rescored": 1}
+    assert db.get_listing(conn, "1")["relevant"] == 1
+
+
+def test_api_config_post_rejects_non_json_body(client):
+    resp = client.post("/api/config", data="not json", content_type="text/plain")
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
 
 
 def test_serve_frontend_falls_back_to_index_for_spa_routes(conn, tmp_path, monkeypatch):

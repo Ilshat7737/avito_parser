@@ -125,3 +125,21 @@ def test_get_unevaluated_listings_excludes_already_scored_items(conn):
 
     unevaluated = db.get_unevaluated_listings(conn)
     assert [item["id"] for item in unevaluated] == ["2"]
+
+
+def test_update_price_preserves_previous_price_for_change_indicator(conn):
+    db.upsert_new(conn, {"id": "1", "title": "A", "price": 100000, "url": "u"})
+    db.update_price(conn, "1", 90000)
+
+    stored = db.get_listing(conn, "1")
+    assert stored["price"] == 90000
+    assert stored["last_price"] == 100000  # предыдущая цена, не новая
+
+
+def test_get_all_listings_returns_every_row_regardless_of_relevance(conn):
+    db.upsert_new(conn, {"id": "1", "title": "Relevant", "price": 100, "url": "u1", "relevant": 1})
+    db.upsert_new(conn, {"id": "2", "title": "Rejected", "price": 100, "url": "u2", "relevant": 0})
+    db.upsert_new(conn, {"id": "3", "title": "Unevaluated", "price": 100, "url": "u3"})
+
+    all_listings = db.get_all_listings(conn)
+    assert {item["id"] for item in all_listings} == {"1", "2", "3"}
