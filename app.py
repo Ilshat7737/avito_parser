@@ -18,7 +18,7 @@ FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
 
 
 def create_app(conn) -> Flask:
-    flask_app = Flask(__name__, static_folder=FRONTEND_DIST, static_url_path="")
+    flask_app = Flask(__name__, static_folder=None)
 
     @flask_app.route("/api/listings")
     def api_listings():

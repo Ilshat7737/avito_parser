@@ -81,3 +81,33 @@ def test_api_rescore_updates_relevance(client, conn, monkeypatch):
     assert resp.status_code == 200
     assert resp.get_json() == {"rescored": 1}
     assert db.get_listing(conn, "1")["relevant"] == 1
+
+
+def test_serve_frontend_falls_back_to_index_for_spa_routes(conn, tmp_path, monkeypatch):
+    """
+    Verify that SPA routes (paths that aren't real files) fall back to index.html,
+    and real static assets are still served correctly.
+    This test confirms that Flask's implicit static route doesn't shadow serve_frontend.
+    """
+    dist = tmp_path / "dist"
+    (dist / "assets").mkdir(parents=True)
+    (dist / "index.html").write_text("<html>SPA shell</html>")
+    (dist / "assets" / "app.js").write_text("console.log('hi');")
+
+    monkeypatch.setattr(app_module, "FRONTEND_DIST", str(dist))
+
+    flask_app = app_module.create_app(conn)
+    flask_app.testing = True
+    client = flask_app.test_client()
+
+    resp_root = client.get("/")
+    assert resp_root.status_code == 200
+    assert b"SPA shell" in resp_root.data
+
+    resp_asset = client.get("/assets/app.js")
+    assert resp_asset.status_code == 200
+    assert b"console.log" in resp_asset.data
+
+    resp_spa_route = client.get("/some/spa/route")
+    assert resp_spa_route.status_code == 200
+    assert b"SPA shell" in resp_spa_route.data
