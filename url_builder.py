@@ -30,6 +30,19 @@ def _select_brand(page, brand: str):
     checkbox.click()
 
 
+def _filters_appear_unapplied(result_url: str, **range_filters) -> bool:
+    """True, если хотя бы один диапазонный фильтр (цена/пробег/год) был
+    задан, а в итоговом URL нет параметра f= — по нему Avito кодирует эти
+    фильтры (подтверждено вручную), значит заполнение формы, похоже, не
+    сработало. Сравнение URL "было/стало" ненадёжно: собственный редирект
+    Avito (например, добавление ?radius=...) может произойти независимо
+    от заполнения фильтров и создать ложное впечатление, что что-то
+    изменилось. Марка сюда не входит — подтверждённых данных о том, как
+    она кодируется в URL, нет."""
+    has_range_filters = any(v is not None for v in range_filters.values())
+    return has_range_filters and "f=" not in result_url
+
+
 def build_search_url(
     city: str,
     brand: str | None = None,
@@ -41,7 +54,9 @@ def build_search_url(
     year_max: int | None = None,
 ) -> str:
     """Открывает страницу поиска Avito, заполняет фильтры через реальную
-    форму и возвращает получившийся URL."""
+    форму и возвращает получившийся URL. Поднимает исключение, если после
+    заполнения формы ссылка не изменилась, хотя фильтры были заданы —
+    чтобы не сохранить и не скрапить по факту нефильтрованную выдачу."""
     start_url = BASE_URL.format(city=city)
 
     with sync_playwright() as p:
@@ -50,6 +65,7 @@ def build_search_url(
             context = browser.new_context(locale="ru-RU")
             page = context.new_page()
             page.goto(start_url, wait_until="domcontentloaded")
+            before_url = page.url
 
             if brand:
                 _select_brand(page, brand)
@@ -59,14 +75,28 @@ def build_search_url(
             _fill_range(page, "params[2687]-from", "params[2687]-to", mileage_min, mileage_max)
 
             page.keyboard.press("Tab")
-            before_url = page.url
             try:
                 page.wait_for_function(
-                    "url => location.href !== url", arg=before_url, timeout=8000
+                    "url => location.href !== url", arg=before_url, timeout=15000
                 )
             except Exception:
-                pass  # фильтры могли не менять URL (например, ничего не задано)
+                pass  # фильтров могло не быть задано вовсе — проверим ниже
 
-            return page.url
+            result_url = page.url
         finally:
             browser.close()
+
+    if _filters_appear_unapplied(
+        result_url,
+        price_min=price_min, price_max=price_max,
+        mileage_min=mileage_min, mileage_max=mileage_max,
+        year_min=year_min, year_max=year_max,
+    ):
+        raise RuntimeError(
+            "Диапазонные фильтры (цена/пробег/год) заданы, но в итоговой "
+            "ссылке нет параметра f= — похоже, заполнение формы не "
+            "сработало (разметка формы могла измениться или сайт ответил "
+            "медленнее обычного)"
+        )
+
+    return result_url

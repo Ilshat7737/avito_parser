@@ -75,6 +75,16 @@ def create_app(conn) -> Flask:
             db.update_relevance(conn, item["id"], 1 if verdict["relevant"] else 0, verdict["reason"])
         return jsonify({"rescored": len(verdicts)})
 
+    @flask_app.route("/api/worker/pause", methods=["POST"])
+    def api_worker_pause():
+        db.set_paused(conn, True, "manual")
+        return jsonify(db.get_status(conn))
+
+    @flask_app.route("/api/worker/resume", methods=["POST"])
+    def api_worker_resume():
+        db.set_paused(conn, False, None)
+        return jsonify(db.get_status(conn))
+
     @flask_app.route("/", defaults={"path": ""})
     @flask_app.route("/<path:path>")
     def serve_frontend(path):

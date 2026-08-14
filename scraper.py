@@ -21,6 +21,32 @@ def _sleep_human():
     time.sleep(random.uniform(config.MIN_DELAY, config.MAX_DELAY))
 
 
+# Эвристика: точные data-marker страницы капчи/блокировки Avito не собраны
+# (нужен реальный HTML/скриншот при следующей блокировке, как и для любого
+# другого нового селектора в проекте) — пока определяем по совокупности
+# признаков, а не по точному селектору.
+BLOCK_INDICATORS = (
+    "капч",
+    "не робот",
+    "доступ ограничен",
+    "подозрительн",
+    "unusual traffic",
+)
+
+
+def is_blocked_or_captcha(page) -> bool:
+    """True, если страница похожа на капчу/блокировку Avito, а не на
+    обычную выдачу: карточек объявлений нет, а текст страницы содержит
+    один из BLOCK_INDICATORS."""
+    if page.query_selector('[data-marker="item"]') is not None:
+        return False
+    try:
+        page_text = page.inner_text("body").lower()
+    except Exception:
+        return False
+    return any(indicator in page_text for indicator in BLOCK_INDICATORS)
+
+
 def _extract_id(url: str) -> str:
     """Достаёт числовой ID объявления из ссылки вида .../item_1234567890"""
     match = re.search(r"_(\d+)(?:[/?]|$)", url)

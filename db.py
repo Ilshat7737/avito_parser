@@ -53,7 +53,9 @@ WORKER_STATUS_SCHEMA = """
 CREATE TABLE IF NOT EXISTS worker_status (
     id INTEGER PRIMARY KEY CHECK (id = 1),
     last_check TEXT,
-    last_count INTEGER
+    last_count INTEGER,
+    paused INTEGER DEFAULT 0,
+    pause_reason TEXT
 );
 """
 
@@ -226,8 +228,25 @@ def set_last_check(conn: sqlite3.Connection, count: int):
 
 
 def get_status(conn: sqlite3.Connection) -> dict:
-    cur = conn.execute("SELECT last_check, last_count FROM worker_status WHERE id = 1")
+    cur = conn.execute(
+        "SELECT last_check, last_count, paused, pause_reason FROM worker_status WHERE id = 1"
+    )
     row = cur.fetchone()
     if row is None:
-        return {"last_check": None, "last_count": 0}
-    return {"last_check": row[0], "last_count": row[1]}
+        return {"last_check": None, "last_count": 0, "paused": False, "pause_reason": None}
+    return {
+        "last_check": row[0],
+        "last_count": row[1],
+        "paused": bool(row[2]),
+        "pause_reason": row[3],
+    }
+
+
+def set_paused(conn: sqlite3.Connection, paused: bool, reason: str | None = None):
+    conn.execute(
+        """INSERT INTO worker_status (id, paused, pause_reason) VALUES (1, ?, ?)
+           ON CONFLICT(id) DO UPDATE SET
+             paused = excluded.paused, pause_reason = excluded.pause_reason""",
+        (1 if paused else 0, reason),
+    )
+    conn.commit()

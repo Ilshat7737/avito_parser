@@ -32,4 +32,6 @@ export interface SearchConfig {
 export interface Status {
   last_check: string | null;
   last_count: number;
+  paused: boolean;
+  pause_reason: string | null;
 }

@@ -33,3 +33,11 @@ export function saveConfig(cfg: Partial<SearchConfig>): Promise<SearchConfig> {
 export function rescore(): Promise<{ rescored: number }> {
   return requestJson<{ rescored: number }>("/api/rescore", { method: "POST" });
 }
+
+export function pauseWorker(): Promise<Status> {
+  return requestJson<Status>("/api/worker/pause", { method: "POST" });
+}
+
+export function resumeWorker(): Promise<Status> {
+  return requestJson<Status>("/api/worker/resume", { method: "POST" });
+}

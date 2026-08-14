@@ -110,3 +110,49 @@ def test_process_cycle_evicts_after_inserting_new_items(conn, monkeypatch):
     assert len(remaining_ids) == 3
     assert "new" in remaining_ids
     assert "0" not in remaining_ids  # самая старая запись вытеснена
+
+
+def test_run_search_cycle_pauses_on_detected_block(conn, monkeypatch):
+    def raise_timeout(page, url):
+        raise Exception('Timeout waiting for [data-marker="item"]')
+
+    monkeypatch.setattr(worker, "fetch_search_results", raise_timeout)
+    monkeypatch.setattr(worker, "is_blocked_or_captcha", lambda page: True)
+
+    result = worker.run_search_cycle(conn, object(), "https://example.com", "текст")
+
+    assert result is None
+    status = db.get_status(conn)
+    assert status["paused"] is True
+    assert status["pause_reason"] == "blocked"
+
+
+def test_run_search_cycle_reraises_non_block_errors(conn, monkeypatch):
+    def raise_network_error(page, url):
+        raise RuntimeError("сеть недоступна")
+
+    monkeypatch.setattr(worker, "fetch_search_results", raise_network_error)
+    monkeypatch.setattr(worker, "is_blocked_or_captcha", lambda page: False)
+
+    with pytest.raises(RuntimeError, match="сеть недоступна"):
+        worker.run_search_cycle(conn, object(), "https://example.com", "текст")
+
+    status = db.get_status(conn)
+    assert status["paused"] is False
+
+
+def test_run_search_cycle_returns_item_count_on_success(conn, monkeypatch):
+    monkeypatch.setattr(
+        worker, "fetch_search_results",
+        lambda page, url: [{"id": "1", "title": "Kia Rio", "price": 700000, "url": "u1"}],
+    )
+    monkeypatch.setattr(worker, "fetch_description", lambda page, url: "тестовое описание")
+    monkeypatch.setattr(
+        worker.agent, "evaluate_listings",
+        lambda items, query_text: {"1": {"relevant": True, "reason": "ok"}},
+    )
+
+    result = worker.run_search_cycle(conn, object(), "https://example.com", "текст")
+
+    assert result == 1
+    assert db.get_listing(conn, "1") is not None

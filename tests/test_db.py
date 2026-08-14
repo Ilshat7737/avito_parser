@@ -111,12 +111,32 @@ def test_search_config_roundtrip(conn):
 
 
 def test_status_defaults_then_updates(conn):
-    assert db.get_status(conn) == {"last_check": None, "last_count": 0}
+    assert db.get_status(conn) == {
+        "last_check": None, "last_count": 0, "paused": False, "pause_reason": None,
+    }
 
     db.set_last_check(conn, count=12)
     status = db.get_status(conn)
     assert status["last_count"] == 12
     assert status["last_check"] is not None
+
+
+def test_set_paused_updates_status_and_survives_set_last_check(conn):
+    db.set_paused(conn, True, "manual")
+    status = db.get_status(conn)
+    assert status["paused"] is True
+    assert status["pause_reason"] == "manual"
+
+    # set_last_check (обычный тик фонового цикла) не должен сбрасывать паузу
+    db.set_last_check(conn, count=5)
+    status = db.get_status(conn)
+    assert status["paused"] is True
+    assert status["pause_reason"] == "manual"
+
+    db.set_paused(conn, False, None)
+    status = db.get_status(conn)
+    assert status["paused"] is False
+    assert status["pause_reason"] is None
 
 
 def test_get_unevaluated_listings_excludes_already_scored_items(conn):

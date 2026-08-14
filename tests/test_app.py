@@ -27,7 +27,23 @@ def client(conn):
 def test_api_status_returns_defaults_when_no_checks_yet(client):
     resp = client.get("/api/status")
     assert resp.status_code == 200
-    assert resp.get_json() == {"last_check": None, "last_count": 0}
+    assert resp.get_json() == {
+        "last_check": None, "last_count": 0, "paused": False, "pause_reason": None,
+    }
+
+
+def test_api_worker_pause_and_resume(client, conn):
+    resp = client.post("/api/worker/pause")
+    assert resp.status_code == 200
+    assert resp.get_json()["paused"] is True
+    assert resp.get_json()["pause_reason"] == "manual"
+    assert db.get_status(conn)["paused"] is True
+
+    resp = client.post("/api/worker/resume")
+    assert resp.status_code == 200
+    assert resp.get_json()["paused"] is False
+    assert resp.get_json()["pause_reason"] is None
+    assert db.get_status(conn)["paused"] is False
 
 
 def test_api_listings_returns_only_relevant_by_default(client, conn):

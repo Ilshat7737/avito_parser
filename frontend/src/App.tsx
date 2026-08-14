@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Toaster, toast } from "sonner";
 import { AnimatePresence, MotionConfig } from "framer-motion";
-import { getConfig, getListings, getStatus, rescore, saveConfig } from "./api";
+import { getConfig, getListings, getStatus, pauseWorker, rescore, resumeWorker, saveConfig } from "./api";
 import type { Listing, SearchConfig, Status } from "./types";
+import { FilterSummary } from "./components/FilterSummary";
 import { ListingCard } from "./components/ListingCard";
 import { SearchForm } from "./components/SearchForm";
 import { StatusBar } from "./components/StatusBar";
@@ -10,14 +11,21 @@ import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
 
-const POLL_INTERVAL_MS = 60_000;
+// Опрос собственного локального API (не Avito) — можно часто, чтобы уже
+// оценённые агентом объявления появлялись на экране почти сразу. Интервал
+// самого скрапинга Avito (CHECK_INTERVAL_SEC в config.py) от этого не
+// зависит и не меняется.
+const POLL_INTERVAL_MS = 3_000;
 
 export default function App() {
   const [listings, setListings] = useState<Listing[]>([]);
-  const [status, setStatus] = useState<Status>({ last_check: null, last_count: 0 });
+  const [status, setStatus] = useState<Status>({
+    last_check: null, last_count: 0, paused: false, pause_reason: null,
+  });
   const [config, setConfig] = useState<Partial<SearchConfig>>({});
   const [showRejected, setShowRejected] = useState(false);
   const [rescoring, setRescoring] = useState(false);
+  const [pauseToggling, setPauseToggling] = useState(false);
   const [loading, setLoading] = useState(true);
   const knownIdsRef = useRef<Set<string>>(new Set());
   const hasLoadedOnceRef = useRef(false);
@@ -64,11 +72,33 @@ export default function App() {
     }
   };
 
+  const handleTogglePause = async () => {
+    setPauseToggling(true);
+    try {
+      if (status.paused) {
+        await resumeWorker();
+      } else {
+        await pauseWorker();
+      }
+      await refresh();
+    } finally {
+      setPauseToggling(false);
+    }
+  };
+
   return (
     <MotionConfig reducedMotion="user">
       <div className="min-h-screen p-6 max-w-6xl mx-auto grid gap-6">
         <Toaster richColors position="top-right" />
         <h1 className="text-2xl font-semibold">Поиск машин на Avito</h1>
+        {status.pause_reason === "blocked" && (
+          <div className="rounded-xl bg-danger/20 border border-danger text-danger px-4 py-3 text-sm">
+            ⚠️ Avito показывает капчу или заблокировал доступ. Решите капчу в
+            открытом окне браузера (если оно ещё открыто) или подождите,
+            затем нажмите «Возобновить».
+          </div>
+        )}
+        <FilterSummary config={config} />
         <SearchForm initial={config} onSave={handleSave} />
         <div className="flex items-center justify-between flex-wrap gap-3">
           <StatusBar status={status} />
@@ -77,6 +107,9 @@ export default function App() {
               <Switch checked={showRejected} onCheckedChange={setShowRejected} />
               Показать отклонённые агентом
             </label>
+            <Button variant="outline" onClick={handleTogglePause} disabled={pauseToggling}>
+              {status.paused ? "▶ Возобновить" : "⏸ Остановить парсинг"}
+            </Button>
             <Button variant="outline" onClick={handleRescore} disabled={rescoring}>
               {rescoring ? "Переоцениваю…" : "Переоценить"}
             </Button>
