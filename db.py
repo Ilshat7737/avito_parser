@@ -244,7 +244,7 @@ def get_status(conn: sqlite3.Connection) -> dict:
 
 def set_paused(conn: sqlite3.Connection, paused: bool, reason: str | None = None):
     conn.execute(
-        """INSERT INTO worker_status (id, paused, pause_reason) VALUES (1, ?, ?)
+        """INSERT INTO worker_status (id, last_count, paused, pause_reason) VALUES (1, 0, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
              paused = excluded.paused, pause_reason = excluded.pause_reason""",
         (1 if paused else 0, reason),

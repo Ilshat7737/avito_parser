@@ -121,6 +121,15 @@ def test_status_defaults_then_updates(conn):
     assert status["last_check"] is not None
 
 
+def test_set_paused_before_any_cycle_leaves_last_count_as_zero_not_null(conn):
+    # регрессия: до первого set_last_check строки worker_status ещё нет;
+    # set_paused не должен создавать её с last_count=NULL
+    db.set_paused(conn, True, "manual")
+    status = db.get_status(conn)
+    assert status["last_count"] == 0
+    assert status["last_check"] is None
+
+
 def test_set_paused_updates_status_and_survives_set_last_check(conn):
     db.set_paused(conn, True, "manual")
     status = db.get_status(conn)
