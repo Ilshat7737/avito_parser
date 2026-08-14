@@ -14,6 +14,16 @@ from notify import console_log, notify_new_item, notify_price_change
 from scraper import USER_AGENT, fetch_description, fetch_search_results, is_blocked_or_captcha
 
 PAUSE_POLL_SEC = 3
+# Размер группы для чанкинга описание+оценка+запись внутри одного цикла —
+# совпадает с agent.BATCH_SIZE, чтобы не увеличивать число вызовов агента
+# (каждая группа = ровно один вызов agent.evaluate_listings). Обрабатываем
+# по группам, а не всё сразу, чтобы уже готовые объявления появлялись на
+# экране (опрос /api/listings раз в 3 сек) по мере готовности, а не одним
+# большим куском в самом конце цикла — при MIN_DELAY/MAX_DELAY=20-30 сек
+# между запросами описаний цикл с десятками новых объявлений может идти
+# много минут, и ждать его целиком, прежде чем показать хоть что-то, не
+# годится.
+CHUNK_SIZE = agent.BATCH_SIZE
 
 
 def process_cycle(conn, items: list[dict], query_text: str, fetch_description_fn, keep: int = 100):
@@ -31,34 +41,40 @@ def process_cycle(conn, items: list[dict], query_text: str, fetch_description_fn
         if db.is_seen(conn, item["id"]):
             continue
 
-        try:
-            item["description"] = fetch_description_fn(item["url"])
-        except Exception:
-            item["description"] = ""
         new_items.append(item)
 
     if not new_items:
         return
 
     stripped_query = query_text.strip()
-    if not stripped_query:
-        verdicts = {item["id"]: {"relevant": True, "reason": "критерий не задан"} for item in new_items}
-    else:
-        verdicts = agent.evaluate_listings(new_items, stripped_query)
-
     inserted_any = False
-    for item in new_items:
-        verdict = verdicts.get(item["id"])
-        if verdict is None:
-            continue  # ошибка агента — попробуем снова в следующем цикле
 
-        item["relevant"] = 1 if verdict["relevant"] else 0
-        item["relevance_reason"] = verdict["reason"]
-        db.upsert_new(conn, item)
-        db.mark_seen(conn, item["id"])
-        inserted_any = True
-        if verdict["relevant"]:
-            notify_new_item(item)
+    for start in range(0, len(new_items), CHUNK_SIZE):
+        chunk = new_items[start:start + CHUNK_SIZE]
+
+        for item in chunk:
+            try:
+                item["description"] = fetch_description_fn(item["url"])
+            except Exception:
+                item["description"] = ""
+
+        if not stripped_query:
+            verdicts = {item["id"]: {"relevant": True, "reason": "критерий не задан"} for item in chunk}
+        else:
+            verdicts = agent.evaluate_listings(chunk, stripped_query)
+
+        for item in chunk:
+            verdict = verdicts.get(item["id"])
+            if verdict is None:
+                continue  # ошибка агента — попробуем снова в следующем цикле
+
+            item["relevant"] = 1 if verdict["relevant"] else 0
+            item["relevance_reason"] = verdict["reason"]
+            db.upsert_new(conn, item)
+            db.mark_seen(conn, item["id"])
+            inserted_any = True
+            if verdict["relevant"]:
+                notify_new_item(item)
 
     if inserted_any:
         db.evict_old_listings(conn, keep=keep)

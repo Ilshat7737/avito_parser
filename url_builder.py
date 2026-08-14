@@ -141,7 +141,12 @@ def build_search_url(
         try:
             context = browser.new_context(locale="ru-RU")
             page = context.new_page()
-            page.goto(start_url, wait_until="domcontentloaded")
+            # Таймаут по умолчанию (30 сек) недостаточен, когда Avito
+            # отвечает медленно из-за ограничений по IP — увеличиваем, но
+            # без автоматических повторов: не получилось — сообщаем
+            # пользователю понятной ошибкой (см. обработку исключения в
+            # POST /api/config), а не долбим сайт заново молча.
+            page.goto(start_url, wait_until="domcontentloaded", timeout=60000)
             before_url = page.url
 
             _field_pause()

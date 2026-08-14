@@ -112,6 +112,64 @@ def test_process_cycle_evicts_after_inserting_new_items(conn, monkeypatch):
     assert "0" not in remaining_ids  # самая старая запись вытеснена
 
 
+def test_process_cycle_writes_results_incrementally_per_chunk(conn, monkeypatch):
+    evaluate_calls = []
+
+    def fake_evaluate(items, query_text):
+        evaluate_calls.append([i["id"] for i in items])
+        return {item["id"]: {"relevant": True, "reason": "ok"} for item in items}
+
+    monkeypatch.setattr(worker.agent, "evaluate_listings", fake_evaluate)
+
+    items = [
+        {"id": str(i), "title": f"Item {i}", "price": 1000, "url": f"u{i}"}
+        for i in range(worker.CHUNK_SIZE + 5)  # больше одного чанка
+    ]
+
+    worker.process_cycle(conn, items, "текст", fake_fetch_description)
+
+    # ровно два вызова агента (по чанкам), а не один на весь список
+    assert len(evaluate_calls) == 2
+    assert len(evaluate_calls[0]) == worker.CHUNK_SIZE
+    assert len(evaluate_calls[1]) == 5
+
+    # все объявления из обоих чанков в итоге сохранены
+    assert db.get_listing(conn, "0") is not None
+    assert db.get_listing(conn, str(worker.CHUNK_SIZE - 1)) is not None
+    assert db.get_listing(conn, str(worker.CHUNK_SIZE + 4)) is not None
+
+
+def test_process_cycle_writes_first_chunk_before_fetching_second_chunk(conn, monkeypatch):
+    order_log = []
+
+    def fake_evaluate(items, query_text):
+        order_log.append(("evaluate", [i["id"] for i in items]))
+        return {item["id"]: {"relevant": True, "reason": "ok"} for item in items}
+
+    def logging_fetch_description(url):
+        order_log.append(("fetch", url))
+        return "описание"
+
+    monkeypatch.setattr(worker.agent, "evaluate_listings", fake_evaluate)
+
+    items = [
+        {"id": str(i), "title": f"Item {i}", "price": 1000, "url": f"u{i}"}
+        for i in range(worker.CHUNK_SIZE + 2)
+    ]
+
+    worker.process_cycle(conn, items, "текст", logging_fetch_description)
+
+    # первый чанк должен быть оценён (evaluate) до того, как начнётся
+    # выборка описаний для второго чанка — иначе объявления первого
+    # чанка не появились бы в БД быстрее, чем весь цикл целиком
+    first_evaluate_index = next(i for i, c in enumerate(order_log) if c[0] == "evaluate")
+    second_chunk_fetch_index = next(
+        i for i, c in enumerate(order_log)
+        if c[0] == "fetch" and c[1] == f"u{worker.CHUNK_SIZE}"
+    )
+    assert first_evaluate_index < second_chunk_fetch_index
+
+
 def test_run_search_cycle_pauses_on_detected_block(conn, monkeypatch):
     def raise_timeout(page, url):
         raise Exception('Timeout waiting for [data-marker="item"]')
