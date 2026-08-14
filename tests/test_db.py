@@ -112,13 +112,45 @@ def test_search_config_roundtrip(conn):
 
 def test_status_defaults_then_updates(conn):
     assert db.get_status(conn) == {
-        "last_check": None, "last_count": 0, "paused": False, "pause_reason": None,
+        "last_check": None, "last_count": 0, "paused": False,
+        "pause_reason": None, "last_error": None, "scanning": False,
     }
 
     db.set_last_check(conn, count=12)
     status = db.get_status(conn)
     assert status["last_count"] == 12
     assert status["last_check"] is not None
+
+
+def test_set_scanning_toggles_status(conn):
+    assert db.get_status(conn)["scanning"] is False
+
+    db.set_scanning(conn, True)
+    assert db.get_status(conn)["scanning"] is True
+
+    db.set_scanning(conn, False)
+    assert db.get_status(conn)["scanning"] is False
+
+
+def test_set_scanning_before_any_cycle_leaves_last_count_as_zero_not_null(conn):
+    db.set_scanning(conn, True)
+    status = db.get_status(conn)
+    assert status["last_count"] == 0
+    assert status["last_check"] is None
+
+
+def test_set_paused_with_error_stores_message_and_resume_clears_it(conn):
+    db.set_paused(conn, True, "error", "сеть недоступна")
+    status = db.get_status(conn)
+    assert status["paused"] is True
+    assert status["pause_reason"] == "error"
+    assert status["last_error"] == "сеть недоступна"
+
+    db.set_paused(conn, False, None)
+    status = db.get_status(conn)
+    assert status["paused"] is False
+    assert status["pause_reason"] is None
+    assert status["last_error"] is None
 
 
 def test_set_paused_before_any_cycle_leaves_last_count_as_zero_not_null(conn):

@@ -28,7 +28,8 @@ def test_api_status_returns_defaults_when_no_checks_yet(client):
     resp = client.get("/api/status")
     assert resp.status_code == 200
     assert resp.get_json() == {
-        "last_check": None, "last_count": 0, "paused": False, "pause_reason": None,
+        "last_check": None, "last_count": 0, "paused": False,
+        "pause_reason": None, "last_error": None, "scanning": False,
     }
 
 

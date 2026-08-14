@@ -89,6 +89,26 @@ def run_search_cycle(conn, page, search_url: str, query_text: str) -> int | None
     return len(items)
 
 
+def run_cycle_with_safety(conn, cycle_fn):
+    """Оборачивает один цикл сканирования: выставляет scanning=True на
+    время выполнения (для индикатора прогрузки в интерфейсе) и
+    гарантированно сбрасывает обратно в False. При любой непредвиденной
+    ошибке (капча/блокировка уже обработана отдельно внутри
+    run_search_cycle и сюда не долетает) ставит паузу с причиной "error"
+    и текстом ошибки — вместо бесконечных автоматических повторов, по
+    прямой просьбе пользователя: один раз не получилось — значит ждём
+    ручного вмешательства, а не долбим Avito дальше."""
+    db.set_scanning(conn, True)
+    try:
+        return cycle_fn()
+    except Exception as e:
+        console_log(f"Ошибка фонового цикла: {e}")
+        db.set_paused(conn, True, "error", str(e))
+        return None
+    finally:
+        db.set_scanning(conn, False)
+
+
 def background_loop(conn, stop_event: threading.Event):
     console_log("Фоновый поток веб-приложения запущен")
     from playwright.sync_api import sync_playwright
@@ -101,7 +121,7 @@ def background_loop(conn, stop_event: threading.Event):
 
         cfg = db.get_search_config(conn)
         if cfg and cfg.get("search_url"):
-            try:
+            def do_cycle(cfg=cfg):
                 with sync_playwright() as p:
                     browser = p.chromium.launch(headless=config.HEADLESS)
                     context = browser.new_context(user_agent=USER_AGENT, locale="ru-RU")
@@ -110,11 +130,12 @@ def background_loop(conn, stop_event: threading.Event):
                         conn, page, cfg["search_url"], cfg.get("query_text") or ""
                     )
                     browser.close()
-                if count is not None:
-                    db.set_last_check(conn, count=count)
-                    console_log(f"Проверено объявлений: {count}")
-            except Exception as e:
-                console_log(f"Ошибка фонового цикла: {e}")
+                    return count
+
+            count = run_cycle_with_safety(conn, do_cycle)
+            if count is not None:
+                db.set_last_check(conn, count=count)
+                console_log(f"Проверено объявлений: {count}")
         else:
             console_log("Поиск ещё не настроен — жду настроек через веб-интерфейс")
 

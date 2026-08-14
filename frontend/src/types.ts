@@ -34,4 +34,6 @@ export interface Status {
   last_count: number;
   paused: boolean;
   pause_reason: string | null;
+  last_error: string | null;
+  scanning: boolean;
 }

@@ -55,7 +55,9 @@ CREATE TABLE IF NOT EXISTS worker_status (
     last_check TEXT,
     last_count INTEGER,
     paused INTEGER DEFAULT 0,
-    pause_reason TEXT
+    pause_reason TEXT,
+    last_error TEXT,
+    scanning INTEGER DEFAULT 0
 );
 """
 
@@ -229,24 +231,41 @@ def set_last_check(conn: sqlite3.Connection, count: int):
 
 def get_status(conn: sqlite3.Connection) -> dict:
     cur = conn.execute(
-        "SELECT last_check, last_count, paused, pause_reason FROM worker_status WHERE id = 1"
+        """SELECT last_check, last_count, paused, pause_reason, last_error, scanning
+           FROM worker_status WHERE id = 1"""
     )
     row = cur.fetchone()
     if row is None:
-        return {"last_check": None, "last_count": 0, "paused": False, "pause_reason": None}
+        return {
+            "last_check": None, "last_count": 0, "paused": False,
+            "pause_reason": None, "last_error": None, "scanning": False,
+        }
     return {
         "last_check": row[0],
         "last_count": row[1],
         "paused": bool(row[2]),
         "pause_reason": row[3],
+        "last_error": row[4],
+        "scanning": bool(row[5]),
     }
 
 
-def set_paused(conn: sqlite3.Connection, paused: bool, reason: str | None = None):
+def set_paused(conn: sqlite3.Connection, paused: bool, reason: str | None = None, error: str | None = None):
     conn.execute(
-        """INSERT INTO worker_status (id, last_count, paused, pause_reason) VALUES (1, 0, ?, ?)
+        """INSERT INTO worker_status (id, last_count, paused, pause_reason, last_error)
+           VALUES (1, 0, ?, ?, ?)
            ON CONFLICT(id) DO UPDATE SET
-             paused = excluded.paused, pause_reason = excluded.pause_reason""",
-        (1 if paused else 0, reason),
+             paused = excluded.paused, pause_reason = excluded.pause_reason,
+             last_error = excluded.last_error""",
+        (1 if paused else 0, reason, error),
+    )
+    conn.commit()
+
+
+def set_scanning(conn: sqlite3.Connection, scanning: bool):
+    conn.execute(
+        """INSERT INTO worker_status (id, last_count, scanning) VALUES (1, 0, ?)
+           ON CONFLICT(id) DO UPDATE SET scanning = excluded.scanning""",
+        (1 if scanning else 0,),
     )
     conn.commit()

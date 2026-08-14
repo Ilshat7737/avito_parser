@@ -1,3 +1,4 @@
+import { Loader2 } from "lucide-react";
 import type { Status } from "../types";
 
 export function StatusBar({ status }: { status: Status }) {
@@ -11,13 +12,19 @@ export function StatusBar({ status }: { status: Status }) {
 
   return (
     <div
-      className={`text-sm font-mono px-3 py-2 rounded-lg ${
+      className={`flex items-center gap-2 text-sm font-mono px-3 py-2 rounded-lg ${
         status.paused ? "bg-white/10" : stale ? "bg-danger/20 text-danger" : "bg-white/5"
       }`}
     >
-      Последняя проверка: {status.last_check ?? "ещё не было"} · Найдено: {status.last_count}
-      {status.paused && " · ⏸ парсинг приостановлен"}
-      {!status.paused && stale && " · фоновый поток мог остановиться"}
+      {status.scanning && !status.paused && (
+        <Loader2 className="h-4 w-4 animate-spin text-accent" aria-label="Идёт сканирование" />
+      )}
+      <span>
+        Последняя проверка: {status.last_check ?? "ещё не было"} · Найдено: {status.last_count}
+        {status.scanning && !status.paused && " · сканирую…"}
+        {status.paused && " · ⏸ парсинг приостановлен"}
+        {!status.paused && stale && " · фоновый поток мог остановиться"}
+      </span>
     </div>
   );
 }

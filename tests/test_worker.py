@@ -156,3 +156,33 @@ def test_run_search_cycle_returns_item_count_on_success(conn, monkeypatch):
 
     assert result == 1
     assert db.get_listing(conn, "1") is not None
+
+
+def test_run_cycle_with_safety_sets_scanning_during_execution_and_clears_after(conn):
+    scanning_during_call = {}
+
+    def fake_cycle():
+        scanning_during_call["value"] = db.get_status(conn)["scanning"]
+        return 7
+
+    result = worker.run_cycle_with_safety(conn, fake_cycle)
+
+    assert result == 7
+    assert scanning_during_call["value"] is True
+    status = db.get_status(conn)
+    assert status["scanning"] is False
+    assert status["paused"] is False
+
+
+def test_run_cycle_with_safety_pauses_with_error_on_exception_and_clears_scanning(conn):
+    def failing_cycle():
+        raise RuntimeError("что-то сломалось")
+
+    result = worker.run_cycle_with_safety(conn, failing_cycle)
+
+    assert result is None
+    status = db.get_status(conn)
+    assert status["scanning"] is False
+    assert status["paused"] is True
+    assert status["pause_reason"] == "error"
+    assert "что-то сломалось" in status["last_error"]

@@ -20,7 +20,8 @@ const POLL_INTERVAL_MS = 3_000;
 export default function App() {
   const [listings, setListings] = useState<Listing[]>([]);
   const [status, setStatus] = useState<Status>({
-    last_check: null, last_count: 0, paused: false, pause_reason: null,
+    last_check: null, last_count: 0, paused: false,
+    pause_reason: null, last_error: null, scanning: false,
   });
   const [config, setConfig] = useState<Partial<SearchConfig>>({});
   const [showRejected, setShowRejected] = useState(false);
@@ -96,6 +97,17 @@ export default function App() {
             ⚠️ Avito показывает капчу или заблокировал доступ. Решите капчу в
             открытом окне браузера (если оно ещё открыто) или подождите,
             затем нажмите «Возобновить».
+          </div>
+        )}
+        {status.pause_reason === "error" && (
+          <div className="rounded-xl bg-danger/20 border border-danger text-danger px-4 py-3 text-sm">
+            ⚠️ Цикл сканирования завершился с ошибкой и приостановлен —
+            повторять автоматически не стал, чтобы не долбить сайт впустую.
+            Проверьте, что происходит, и нажмите «Возобновить», когда
+            будете готовы попробовать снова.
+            {status.last_error && (
+              <div className="mt-1 font-mono text-xs opacity-80 break-all">{status.last_error}</div>
+            )}
           </div>
         )}
         <FilterSummary config={config} />
