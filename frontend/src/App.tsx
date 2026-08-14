@@ -20,13 +20,17 @@ export default function App() {
   const [rescoring, setRescoring] = useState(false);
   const [loading, setLoading] = useState(true);
   const knownIdsRef = useRef<Set<string>>(new Set());
+  const hasLoadedOnceRef = useRef(false);
 
   const refresh = useCallback(async () => {
     const [freshListings, freshStatus] = await Promise.all([getListings(showRejected), getStatus()]);
-    const newRelevant = freshListings.filter((l) => l.relevant === 1 && !knownIdsRef.current.has(l.id));
-    for (const item of newRelevant) {
-      toast.success(`Новое объявление: ${item.title}`);
+    if (hasLoadedOnceRef.current) {
+      const newRelevant = freshListings.filter((l) => l.relevant === 1 && !knownIdsRef.current.has(l.id));
+      for (const item of newRelevant) {
+        toast.success(`Новое объявление: ${item.title}`);
+      }
     }
+    hasLoadedOnceRef.current = true;
     knownIdsRef.current = new Set(freshListings.map((l) => l.id));
     setListings(freshListings);
     setStatus(freshStatus);

@@ -3,7 +3,7 @@ import type { Status } from "../types";
 export function StatusBar({ status }: { status: Status }) {
   const stale =
     status.last_check !== null &&
-    Date.now() - new Date(status.last_check).getTime() > 2 * 60 * 1000;
+    Date.now() - new Date(status.last_check).getTime() > 5 * 60 * 1000;
 
   return (
     <div
