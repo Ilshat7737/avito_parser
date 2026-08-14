@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { SearchConfig } from "../types";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,10 @@ export function SearchForm({ initial, onSave }: Props) {
   const [form, setForm] = useState<Partial<SearchConfig>>(initial);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setForm(initial);
+  }, [initial]);
 
   const field = (key: keyof SearchConfig) => (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = e.target.value;
