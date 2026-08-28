@@ -2,55 +2,98 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Тема — тёмная, "приборная панель": асфальтовый фон, у каждой из двух
+ * поисковых сессий свой акцентный цвет (янтарный индикатор / синий свет
+ * фар), чтобы сессии считывались с одного взгляда, не только по номеру
+ * в заголовке. --primary переопределяется классом .session-1/.session-2
+ * на корневом контейнере (см. App.tsx) — так кнопки/фокус-кольца/акценты
+ * автоматически подстраиваются под активную сессию без правки каждого
+ * компонента отдельно.
+ */
 :root {
-  --background: 210 40% 98%;
-  --foreground: 222 47% 11%;
-  --card: 0 0% 100%;
-  --card-foreground: 222 47% 11%;
-  --accent: 142 71% 45%;
-  --danger: 0 84% 60%;
-  --popover: 0 0% 100%;
-  --popover-foreground: 222 47% 11%;
-  --primary: 142 71% 45%;
-  --primary-foreground: 222 47% 11%;
-  --secondary: 210 40% 94%;
-  --secondary-foreground: 222 47% 11%;
-  --muted: 210 40% 94%;
-  --muted-foreground: 215 16% 47%;
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 0 0% 100%;
-  --border: 214 32% 91%;
-  --input: 214 32% 91%;
-  --ring: 142 71% 45%;
-  --radius: 0.75rem;
+  --background: 220 22% 7%;
+  --foreground: 210 20% 96%;
+  --card: 220 18% 11%;
+  --card-foreground: 210 20% 96%;
+  --accent: 38 92% 55%;
+  --danger: 4 90% 58%;
+  --positive: 142 60% 45%;
+  --popover: 220 18% 11%;
+  --popover-foreground: 210 20% 96%;
+  --primary: 38 92% 55%;
+  --primary-foreground: 220 22% 7%;
+  --secondary: 220 16% 16%;
+  --secondary-foreground: 210 20% 96%;
+  --muted: 220 16% 16%;
+  --muted-foreground: 215 14% 60%;
+  --destructive: 4 90% 58%;
+  --destructive-foreground: 210 20% 96%;
+  --border: 220 14% 20%;
+  --input: 220 14% 20%;
+  --ring: 38 92% 55%;
+  --radius: 0.9rem;
+
+  --session-1: 38 92% 55%;
+  --session-1-foreground: 220 22% 7%;
+  --session-2: 198 90% 60%;
+  --session-2-foreground: 220 22% 7%;
 }
 
+/* Проект всегда рендерится в тёмной теме (html class="dark") — значения
+   продублированы под .dark на случай переключения в будущем, они
+   совпадают с :root намеренно, не рассинхронизировать. */
 .dark {
-  --background: 222 47% 11%;
-  --foreground: 210 40% 98%;
-  --card: 217 33% 17%;
-  --card-foreground: 210 40% 98%;
-  --accent: 142 71% 45%;
-  --danger: 0 84% 60%;
-  --popover: 217 33% 17%;
-  --popover-foreground: 210 40% 98%;
-  --primary: 142 71% 45%;
-  --primary-foreground: 222 47% 11%;
-  --secondary: 217 33% 17%;
-  --secondary-foreground: 210 40% 98%;
-  --muted: 217 33% 17%;
-  --muted-foreground: 215 20% 65%;
-  --destructive: 0 84% 60%;
-  --destructive-foreground: 210 40% 98%;
-  --border: 217 33% 24%;
-  --input: 217 33% 24%;
-  --ring: 142 71% 45%;
+  --background: 220 22% 7%;
+  --foreground: 210 20% 96%;
+  --card: 220 18% 11%;
+  --card-foreground: 210 20% 96%;
+  --accent: 38 92% 55%;
+  --danger: 4 90% 58%;
+  --positive: 142 60% 45%;
+  --popover: 220 18% 11%;
+  --popover-foreground: 210 20% 96%;
+  --primary: 38 92% 55%;
+  --primary-foreground: 220 22% 7%;
+  --secondary: 220 16% 16%;
+  --secondary-foreground: 210 20% 96%;
+  --muted: 220 16% 16%;
+  --muted-foreground: 215 14% 60%;
+  --destructive: 4 90% 58%;
+  --destructive-foreground: 210 20% 96%;
+  --border: 220 14% 20%;
+  --input: 220 14% 20%;
+  --ring: 38 92% 55%;
+}
+
+/* Активная сессия красит primary/ring/accent под свой цвет — единая
+   точка правды вместо раскраски каждой кнопки условным классом. */
+.session-1 {
+  --primary: var(--session-1);
+  --primary-foreground: var(--session-1-foreground);
+  --ring: var(--session-1);
+  --accent: var(--session-1);
+}
+.session-2 {
+  --primary: var(--session-2);
+  --primary-foreground: var(--session-2-foreground);
+  --ring: var(--session-2);
+  --accent: var(--session-2);
 }
 
 body {
   background-color: hsl(var(--background));
+  background-image:
+    radial-gradient(ellipse 80% 50% at 50% -10%, hsl(var(--primary) / 0.12), transparent),
+    linear-gradient(180deg, hsl(220 22% 8%), hsl(220 22% 6%));
+  background-attachment: fixed;
   color: hsl(var(--foreground));
   font-family: "Fira Sans", system-ui, sans-serif;
+}
+
+.font-tabular {
+  font-family: "Fira Code", ui-monospace, monospace;
+  font-variant-numeric: tabular-nums;
 }
 
 @media (prefers-reduced-motion: reduce) {

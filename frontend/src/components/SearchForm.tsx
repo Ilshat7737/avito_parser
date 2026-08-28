@@ -40,7 +40,7 @@ export function SearchForm({ initial, onSave }: Props) {
   };
 
   return (
-    <form onSubmit={handleSubmit} className="grid gap-3 rounded-xl bg-[hsl(var(--card))] p-4">
+    <form onSubmit={handleSubmit} className="grid gap-3 rounded-2xl border border-border bg-card p-4">
       <Input placeholder="Город (латиницей, напр. kazan)" value={form.city ?? ""} onChange={field("city")} required />
       <Input placeholder="Марка (напр. Kia)" value={form.brand ?? ""} onChange={field("brand")} />
       <div className="grid grid-cols-2 gap-3">

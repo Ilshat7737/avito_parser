@@ -6,10 +6,19 @@ export default {
   theme: {
     extend: {
       colors: {
-        surface: "#0F172A",
-        "surface-raised": "#1E293B",
-        accent: "#22C55E",
-        danger: "#EF4444",
+        surface: "hsl(var(--background))",
+        "surface-raised": "hsl(var(--card))",
+        accent: "hsl(var(--accent))",
+        danger: "hsl(var(--danger))",
+        positive: "hsl(var(--positive))",
+        session1: {
+          DEFAULT: "hsl(var(--session-1))",
+          foreground: "hsl(var(--session-1-foreground))",
+        },
+        session2: {
+          DEFAULT: "hsl(var(--session-2))",
+          foreground: "hsl(var(--session-2-foreground))",
+        },
         background: "hsl(var(--background))",
         foreground: "hsl(var(--foreground))",
         card: {

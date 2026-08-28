@@ -21,7 +21,7 @@ export function ListingCard({ listing }: { listing: Listing }) {
       transition={{ type: "spring", stiffness: 260, damping: 20 }}
       className="block hover:scale-[1.02] transition-transform"
     >
-      <Card className="rounded-xl shadow-md overflow-hidden">
+      <Card className="rounded-2xl border-t-2 border-t-primary shadow-lg shadow-black/20 overflow-hidden">
         {listing.photo && (
           <img
             src={listing.photo}
@@ -33,20 +33,20 @@ export function ListingCard({ listing }: { listing: Listing }) {
         <CardContent className="p-4">
           <h3 className="font-sans font-semibold text-base mb-1 line-clamp-2">{listing.title}</h3>
           <p
-            className={`font-mono text-xl font-medium mb-2 ${priceChanged ? "animate-price-flash rounded px-1" : ""}`}
+            className={`font-tabular text-xl font-medium mb-2 ${priceChanged ? "animate-price-flash rounded px-1" : ""}`}
           >
             {formatNumber(listing.price)} ₽
           </p>
           <div className="flex gap-2 mb-2">
-            {listing.year && <Badge variant="secondary" className="font-mono">{listing.year}</Badge>}
+            {listing.year && <Badge variant="secondary" className="font-tabular">{listing.year}</Badge>}
             {listing.mileage !== null && (
-              <Badge variant="secondary" className="font-mono">
+              <Badge variant="secondary" className="font-tabular">
                 {formatNumber(listing.mileage)} км
               </Badge>
             )}
           </div>
           {listing.relevance_reason && (
-            <p className="text-sm text-[hsl(var(--foreground))]/70">{listing.relevance_reason}</p>
+            <p className="text-sm text-muted-foreground">{listing.relevance_reason}</p>
           )}
         </CardContent>
       </Card>

@@ -11,7 +11,7 @@ function formatRange(min: number | null | undefined, max: number | null | undefi
 export function FilterSummary({ config }: { config: Partial<SearchConfig> }) {
   if (!config.search_url) {
     return (
-      <div className="rounded-xl bg-[hsl(var(--card))] px-4 py-3 text-sm text-[hsl(var(--foreground))]/70">
+      <div className="rounded-2xl border border-border bg-card px-4 py-3 text-sm text-muted-foreground">
         Поиск ещё не настроен — заполните форму ниже и нажмите «Сохранить».
       </div>
     );
@@ -30,11 +30,11 @@ export function FilterSummary({ config }: { config: Partial<SearchConfig> }) {
   ].filter(Boolean) as string[];
 
   return (
-    <div className="rounded-xl bg-[hsl(var(--card))] px-4 py-3">
-      <div className="text-xs uppercase tracking-wide text-[hsl(var(--foreground))]/50 mb-1">
+    <div className="rounded-2xl border border-border bg-card px-4 py-3">
+      <div className="text-xs uppercase tracking-wide text-muted-foreground mb-1">
         Активный поиск
       </div>
-      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm font-mono">
+      <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm font-tabular">
         {parts.length > 0 ? (
           parts.map((p) => <span key={p}>{p}</span>)
         ) : (
@@ -42,7 +42,7 @@ export function FilterSummary({ config }: { config: Partial<SearchConfig> }) {
         )}
       </div>
       {config.query_text && (
-        <div className="text-sm text-[hsl(var(--foreground))]/70 mt-1">«{config.query_text}»</div>
+        <div className="text-sm text-muted-foreground mt-1">«{config.query_text}»</div>
       )}
     </div>
   );

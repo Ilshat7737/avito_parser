@@ -6,10 +6,16 @@ import type { Listing, SearchConfig, Status } from "./types";
 import { FilterSummary } from "./components/FilterSummary";
 import { ListingCard } from "./components/ListingCard";
 import { SearchForm } from "./components/SearchForm";
+import { SessionSwitcher } from "./components/SessionSwitcher";
 import { StatusBar } from "./components/StatusBar";
 import { Button } from "@/components/ui/button";
 import { Switch } from "@/components/ui/switch";
 import { Skeleton } from "@/components/ui/skeleton";
+
+const EMPTY_STATUS: Status = {
+  last_check: null, last_count: 0, paused: false,
+  pause_reason: null, last_error: null, scanning: false,
+};
 
 // Опрос собственного локального API (не Avito) — можно часто, чтобы уже
 // оценённые агентом объявления появлялись на экране почти сразу. Интервал
@@ -24,11 +30,13 @@ function getSessionIdFromUrl(): 1 | 2 {
 
 export default function App() {
   const sessionId = useRef(getSessionIdFromUrl()).current;
+  const otherSessionId: 1 | 2 = sessionId === 1 ? 2 : 1;
   const [listings, setListings] = useState<Listing[]>([]);
-  const [status, setStatus] = useState<Status>({
-    last_check: null, last_count: 0, paused: false,
-    pause_reason: null, last_error: null, scanning: false,
-  });
+  const [status, setStatus] = useState<Status>(EMPTY_STATUS);
+  // Статус СОСЕДНЕЙ сессии — только для отображения на вкладке
+  // переключателя (SessionSwitcher), чтобы оба состояния были видны, не
+  // переключаясь. Не влияет на данные/логику текущей сессии.
+  const [otherStatus, setOtherStatus] = useState<Status | null>(null);
   const [config, setConfig] = useState<Partial<SearchConfig>>({});
   const [showRejected, setShowRejected] = useState(false);
   const [rescoring, setRescoring] = useState(false);
@@ -54,6 +62,17 @@ export default function App() {
     setStatus(freshStatus);
     setLoading(false);
   }, [sessionId, showRejected]);
+
+  useEffect(() => {
+    let cancelled = false;
+    const pollOther = () => getStatus(otherSessionId).then((s) => !cancelled && setOtherStatus(s));
+    pollOther();
+    const id = setInterval(pollOther, POLL_INTERVAL_MS);
+    return () => {
+      cancelled = true;
+      clearInterval(id);
+    };
+  }, [otherSessionId]);
 
   useEffect(() => {
     getConfig(sessionId).then(setConfig);
@@ -98,30 +117,32 @@ export default function App() {
 
   return (
     <MotionConfig reducedMotion="user">
-      <div className="min-h-screen p-6 max-w-6xl mx-auto grid gap-6">
-        <Toaster richColors position="top-right" />
-        <h1 className="text-2xl font-semibold">
-          Поиск машин на Avito — сессия {sessionId}
-          {" · "}
-          <a className="text-sm underline" href={sessionId === 1 ? "?session=2" : "?session=1"}>
-            открыть сессию {sessionId === 1 ? 2 : 1}
-          </a>
-        </h1>
+      <div className={`session-${sessionId} min-h-screen p-6 max-w-6xl mx-auto grid gap-6`}>
+        <Toaster richColors position="top-right" theme="dark" />
+        <header className="flex flex-wrap items-center justify-between gap-3">
+          <div>
+            <p className="text-xs uppercase tracking-widest text-muted-foreground mb-1">
+              Avito монитор
+            </p>
+            <h1 className="text-2xl font-semibold">Поиск машин</h1>
+          </div>
+          <SessionSwitcher activeSessionId={sessionId} ownStatus={status} otherStatus={otherStatus} />
+        </header>
         {status.pause_reason === "blocked" && (
-          <div className="rounded-xl bg-danger/20 border border-danger text-danger px-4 py-3 text-sm">
+          <div className="rounded-2xl bg-danger/10 border border-danger/30 text-danger px-4 py-3 text-sm">
             ⚠️ Avito показывает капчу или заблокировал доступ. Решите капчу в
             открытом окне браузера (если оно ещё открыто) или подождите,
             затем нажмите «Возобновить».
           </div>
         )}
         {status.pause_reason === "error" && (
-          <div className="rounded-xl bg-danger/20 border border-danger text-danger px-4 py-3 text-sm">
+          <div className="rounded-2xl bg-danger/10 border border-danger/30 text-danger px-4 py-3 text-sm">
             ⚠️ Цикл сканирования завершился с ошибкой и приостановлен —
             повторять автоматически не стал, чтобы не долбить сайт впустую.
             Проверьте, что происходит, и нажмите «Возобновить», когда
             будете готовы попробовать снова.
             {status.last_error && (
-              <div className="mt-1 font-mono text-xs opacity-80 break-all">{status.last_error}</div>
+              <div className="mt-1 font-tabular text-xs opacity-80 break-all">{status.last_error}</div>
             )}
           </div>
         )}
@@ -145,7 +166,7 @@ export default function App() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {loading ? (
             Array.from({ length: 8 }).map((_, i) => (
-              <Skeleton key={i} className="h-64 rounded-xl" />
+              <Skeleton key={i} className="h-64 rounded-2xl" />
             ))
           ) : (
             <AnimatePresence>
