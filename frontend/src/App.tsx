@@ -17,7 +17,13 @@ import { Skeleton } from "@/components/ui/skeleton";
 // зависит и не меняется.
 const POLL_INTERVAL_MS = 3_000;
 
+function getSessionIdFromUrl(): 1 | 2 {
+  const raw = new URLSearchParams(window.location.search).get("session");
+  return raw === "2" ? 2 : 1; // всё, что не "2" (включая отсутствие параметра) — сессия 1
+}
+
 export default function App() {
+  const sessionId = useRef(getSessionIdFromUrl()).current;
   const [listings, setListings] = useState<Listing[]>([]);
   const [status, setStatus] = useState<Status>({
     last_check: null, last_count: 0, paused: false,
@@ -32,7 +38,10 @@ export default function App() {
   const hasLoadedOnceRef = useRef(false);
 
   const refresh = useCallback(async () => {
-    const [freshListings, freshStatus] = await Promise.all([getListings(showRejected), getStatus()]);
+    const [freshListings, freshStatus] = await Promise.all([
+      getListings(sessionId, showRejected),
+      getStatus(sessionId),
+    ]);
     if (hasLoadedOnceRef.current) {
       const newRelevant = freshListings.filter((l) => l.relevant === 1 && !knownIdsRef.current.has(l.id));
       for (const item of newRelevant) {
@@ -44,11 +53,11 @@ export default function App() {
     setListings(freshListings);
     setStatus(freshStatus);
     setLoading(false);
-  }, [showRejected]);
+  }, [sessionId, showRejected]);
 
   useEffect(() => {
-    getConfig().then(setConfig);
-  }, []);
+    getConfig(sessionId).then(setConfig);
+  }, [sessionId]);
 
   useEffect(() => {
     refresh();
@@ -57,7 +66,7 @@ export default function App() {
   }, [showRejected, refresh]);
 
   const handleSave = async (cfg: Partial<SearchConfig>) => {
-    const saved = await saveConfig(cfg);
+    const saved = await saveConfig(sessionId, cfg);
     setConfig(saved);
     await refresh();
   };
@@ -65,7 +74,7 @@ export default function App() {
   const handleRescore = async () => {
     setRescoring(true);
     try {
-      const result = await rescore();
+      const result = await rescore(sessionId);
       toast.info(`Переоценено объявлений: ${result.rescored}`);
       await refresh();
     } finally {
@@ -77,9 +86,9 @@ export default function App() {
     setPauseToggling(true);
     try {
       if (status.paused) {
-        await resumeWorker();
+        await resumeWorker(sessionId);
       } else {
-        await pauseWorker();
+        await pauseWorker(sessionId);
       }
       await refresh();
     } finally {
@@ -91,7 +100,13 @@ export default function App() {
     <MotionConfig reducedMotion="user">
       <div className="min-h-screen p-6 max-w-6xl mx-auto grid gap-6">
         <Toaster richColors position="top-right" />
-        <h1 className="text-2xl font-semibold">Поиск машин на Avito</h1>
+        <h1 className="text-2xl font-semibold">
+          Поиск машин на Avito — сессия {sessionId}
+          {" · "}
+          <a className="text-sm underline" href={sessionId === 1 ? "?session=2" : "?session=1"}>
+            открыть сессию {sessionId === 1 ? 2 : 1}
+          </a>
+        </h1>
         {status.pause_reason === "blocked" && (
           <div className="rounded-xl bg-danger/20 border border-danger text-danger px-4 py-3 text-sm">
             ⚠️ Avito показывает капчу или заблокировал доступ. Решите капчу в
