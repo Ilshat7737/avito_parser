@@ -345,3 +345,93 @@ def test_get_conn_migrates_legacy_single_session_db_to_session_1(tmp_path):
     assert db.get_all_listings(conn, 2) == []
     db.save_search_config(conn, 2, {"city": "moskva"})
     assert db.get_search_config(conn, 2)["city"] == "moskva"
+
+
+def test_migrate_to_sessions_atomic_on_crash_mid_migration(tmp_path, monkeypatch):
+    """Регрессия на находку ревью: _migrate_to_sessions должна быть
+    атомарной. Симулируем падение процесса ПОСЛЕ того, как для listings
+    уже выполнились RENAME/CREATE(с session_id)/INSERT, но ДО DROP TABLE
+    listings_old и до финального COMMIT — раньше в этой точке RENAME/
+    CREATE успевали закоммититься по отдельности (неявный коммит sqlite3
+    перед каждым DDL-стейтментом), и guard-чек ("session_id" in listings)
+    при следующем запуске считал бы миграцию завершённой, хотя реальные
+    данные остались бы недостижимы в listings_old."""
+    db_path = str(tmp_path / "legacy_crash.db")
+    old_conn = sqlite3.connect(db_path)
+    old_conn.execute("""
+        CREATE TABLE listings (
+            id TEXT PRIMARY KEY, title TEXT, price INTEGER, url TEXT, photo TEXT,
+            description TEXT, year INTEGER, mileage INTEGER, relevant INTEGER,
+            relevance_reason TEXT, agent_evaluated_at TEXT, first_seen TEXT,
+            last_price INTEGER, last_checked TEXT
+        )
+    """)
+    old_conn.execute(
+        "INSERT INTO listings (id, title, price, url, first_seen, last_price, last_checked) "
+        "VALUES ('legacy-1', 'Старое объявление', 100000, 'u', '2026-01-01T00:00:00', 100000, '2026-01-01T00:00:00')"
+    )
+    old_conn.execute("CREATE TABLE seen_ids (id TEXT PRIMARY KEY, first_seen TEXT)")
+    old_conn.execute("INSERT INTO seen_ids (id, first_seen) VALUES ('legacy-1', '2026-01-01T00:00:00')")
+    old_conn.execute("""
+        CREATE TABLE search_config (
+            id INTEGER PRIMARY KEY CHECK (id = 1), city TEXT, brand TEXT,
+            price_min INTEGER, price_max INTEGER, mileage_min INTEGER, mileage_max INTEGER,
+            year_min INTEGER, year_max INTEGER, query_text TEXT, search_url TEXT, updated_at TEXT
+        )
+    """)
+    old_conn.execute(
+        "INSERT INTO search_config (id, city, updated_at) VALUES (1, 'kazan', '2026-01-01T00:00:00')"
+    )
+    old_conn.execute("""
+        CREATE TABLE worker_status (
+            id INTEGER PRIMARY KEY CHECK (id = 1), last_check TEXT, last_count INTEGER,
+            paused INTEGER DEFAULT 0, pause_reason TEXT, last_error TEXT, scanning INTEGER DEFAULT 0
+        )
+    """)
+    old_conn.execute("INSERT INTO worker_status (id, last_count) VALUES (1, 7)")
+    old_conn.commit()
+    old_conn.close()
+
+    # sqlite3.Connection — неизменяемый C-тип, его методы нельзя
+    # подменить через monkeypatch.setattr на классе напрямую. Вместо
+    # этого подсовываем db.get_conn() (через sqlite3.connect(...,
+    # factory=...)) подкласс Connection, у которого execute() падает на
+    # конкретном DDL-стейтменте — имитация обрыва процесса в этой точке.
+    class CrashingConnection(sqlite3.Connection):
+        def execute(self, sql, *args, **kwargs):
+            if isinstance(sql, str) and "DROP TABLE listings_old" in sql:
+                raise RuntimeError("симулированное падение процесса посреди миграции")
+            return super().execute(sql, *args, **kwargs)
+
+    original_connect = sqlite3.connect
+
+    def connect_with_crashing_factory(*args, **kwargs):
+        kwargs["factory"] = CrashingConnection
+        return original_connect(*args, **kwargs)
+
+    monkeypatch.setattr(sqlite3, "connect", connect_with_crashing_factory)
+
+    with pytest.raises(RuntimeError):
+        db.get_conn(db_path)
+
+    monkeypatch.undo()  # дальше открываем БД уже настоящим execute, без подмены
+
+    # "Перезапуск процесса" — свежее соединение с тем же файлом.
+    conn2 = db.get_conn(db_path)
+
+    # Ключевой инвариант: ничего не потеряно и не осиротело — миграция
+    # либо полностью откатилась и корректно повторилась при переоткрытии,
+    # либо не сломала данные. Проверяем итоговое видимое состояние.
+    assert db.get_listing(conn2, 1, "legacy-1")["title"] == "Старое объявление"
+    assert db.is_seen(conn2, 1, "legacy-1") is True
+    assert db.get_search_config(conn2, 1)["city"] == "kazan"
+    assert db.get_status(conn2, 1)["last_count"] == 7
+
+    tables = {row[0] for row in conn2.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+    assert not any(t.endswith("_old") for t in tables), f"осиротевшие таблицы: {tables}"
+
+    # миграция реально применилась (не осталась висеть в недомигрированном
+    # состоянии) — сессия 2 доступна и независима от сессии 1
+    assert db.get_all_listings(conn2, 2) == []
+    db.save_search_config(conn2, 2, {"city": "moskva"})
+    assert db.get_search_config(conn2, 2)["city"] == "moskva"

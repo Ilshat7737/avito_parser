@@ -108,43 +108,76 @@ def _migrate_to_sessions(conn: sqlite3.Connection):
     таблицы не патчатся на месте, а пересоздаются внутри того же файла
     БД: RENAME старой в *_old, CREATE новой по актуальной схеме,
     INSERT ... SELECT данных из старой (с session_id=1 для listings/
-    seen_ids), DROP старой. Никакого удаления файла БД."""
-    existing = {row[1] for row in conn.execute("PRAGMA table_info(listings)")}
-    if "session_id" in existing:
-        return  # уже мигрировано
+    seen_ids), DROP старой. Никакого удаления файла БД.
 
-    conn.execute("ALTER TABLE listings RENAME TO listings_old")
-    conn.execute(SCHEMA)
-    conn.execute("""
-        INSERT INTO listings (session_id, id, title, price, url, photo,
-            description, year, mileage, relevant, relevance_reason,
-            agent_evaluated_at, first_seen, last_price, last_checked)
-        SELECT 1, id, title, price, url, photo, description, year, mileage,
-            relevant, relevance_reason, agent_evaluated_at, first_seen,
-            last_price, last_checked
-        FROM listings_old
-    """)
-    conn.execute("DROP TABLE listings_old")
+    Вся последовательность (включая сам guard-чек выше) обёрнута в одну
+    явную SQLite-транзакцию. Это не просто украшение: модуль sqlite3 по
+    умолчанию (isolation_level='') неявно коммитит уже открытую
+    транзакцию перед выполнением КАЖДОГО DDL-стейтмента (CREATE/ALTER/
+    DROP) — то есть при таком режиме RENAME/CREATE/DROP из цикла ниже
+    коммитятся поодиночке независимо от финального conn.commit(). Если
+    процесс падает между, например, CREATE TABLE listings (уже
+    закоммичен, с session_id) и последующим INSERT ... SELECT (ещё не
+    закоммичен), guard-чек при следующем запуске увидит "session_id"
+    в listings и решит, что миграция уже прошла — а данные так и
+    останутся в listings_old, недостижимо и навсегда.
 
-    conn.execute("ALTER TABLE seen_ids RENAME TO seen_ids_old")
-    conn.execute(SEEN_IDS_SCHEMA)
-    conn.execute("""
-        INSERT INTO seen_ids (session_id, id, first_seen)
-        SELECT 1, id, first_seen FROM seen_ids_old
-    """)
-    conn.execute("DROP TABLE seen_ids_old")
+    Чтобы это исключить, на время миграции переключаем соединение в
+    isolation_level=None (autocommit passthrough — sqlite3 перестаёт
+    сам управлять транзакциями) и оборачиваем всё явными BEGIN/COMMIT.
+    В этом режиме DDL-стейтменты подчиняются обычной SQLite-транзакции
+    как любые другие, поэтому либо коммитятся все четыре таблицы разом,
+    либо (при исключении или падении процесса до COMMIT) не коммитится
+    ни одна — SQLite сама откатывает незавершённую транзакцию при
+    следующем открытии файла. Проверено экспериментально (см.
+    tests/test_db.py::test_migrate_to_sessions_atomic_on_crash_mid_migration)."""
+    previous_isolation_level = conn.isolation_level
+    conn.isolation_level = None
+    try:
+        conn.execute("BEGIN")
 
-    conn.execute("ALTER TABLE search_config RENAME TO search_config_old")
-    conn.execute(SEARCH_CONFIG_SCHEMA)
-    conn.execute("INSERT INTO search_config SELECT * FROM search_config_old")
-    conn.execute("DROP TABLE search_config_old")
+        existing = {row[1] for row in conn.execute("PRAGMA table_info(listings)")}
+        if "session_id" in existing:
+            conn.execute("ROLLBACK")  # ничего не писали, просто закрываем чтение
+            return  # уже мигрировано
 
-    conn.execute("ALTER TABLE worker_status RENAME TO worker_status_old")
-    conn.execute(WORKER_STATUS_SCHEMA)
-    conn.execute("INSERT INTO worker_status SELECT * FROM worker_status_old")
-    conn.execute("DROP TABLE worker_status_old")
+        conn.execute("ALTER TABLE listings RENAME TO listings_old")
+        conn.execute(SCHEMA)
+        conn.execute("""
+            INSERT INTO listings (session_id, id, title, price, url, photo,
+                description, year, mileage, relevant, relevance_reason,
+                agent_evaluated_at, first_seen, last_price, last_checked)
+            SELECT 1, id, title, price, url, photo, description, year, mileage,
+                relevant, relevance_reason, agent_evaluated_at, first_seen,
+                last_price, last_checked
+            FROM listings_old
+        """)
+        conn.execute("DROP TABLE listings_old")
 
-    conn.commit()
+        conn.execute("ALTER TABLE seen_ids RENAME TO seen_ids_old")
+        conn.execute(SEEN_IDS_SCHEMA)
+        conn.execute("""
+            INSERT INTO seen_ids (session_id, id, first_seen)
+            SELECT 1, id, first_seen FROM seen_ids_old
+        """)
+        conn.execute("DROP TABLE seen_ids_old")
+
+        conn.execute("ALTER TABLE search_config RENAME TO search_config_old")
+        conn.execute(SEARCH_CONFIG_SCHEMA)
+        conn.execute("INSERT INTO search_config SELECT * FROM search_config_old")
+        conn.execute("DROP TABLE search_config_old")
+
+        conn.execute("ALTER TABLE worker_status RENAME TO worker_status_old")
+        conn.execute(WORKER_STATUS_SCHEMA)
+        conn.execute("INSERT INTO worker_status SELECT * FROM worker_status_old")
+        conn.execute("DROP TABLE worker_status_old")
+
+        conn.execute("COMMIT")
+    except BaseException:
+        conn.execute("ROLLBACK")
+        raise
+    finally:
+        conn.isolation_level = previous_isolation_level
 
 
 def get_conn(db_path: str) -> sqlite3.Connection:
