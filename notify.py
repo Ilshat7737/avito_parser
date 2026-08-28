@@ -35,16 +35,18 @@ def _send_telegram(text: str):
         console_log(f"Не удалось отправить в Telegram: {e}")
 
 
-def notify_new_item(item: dict):
+def notify_new_item(item: dict, session_id: int | None = None):
     price = f"{item['price']} ₽" if item["price"] else "цена не указана"
-    text = f"🆕 Новое объявление: {item['title']} — {price}\n{item['url']}"
+    prefix = f"[Сессия {session_id}] " if session_id is not None else ""
+    text = f"{prefix}🆕 Новое объявление: {item['title']} — {price}\n{item['url']}"
     console_log(text)
     _send_telegram(text)
 
 
-def notify_price_change(old_item: dict, new_item: dict):
+def notify_price_change(old_item: dict, new_item: dict, session_id: int | None = None):
+    prefix = f"[Сессия {session_id}] " if session_id is not None else ""
     text = (
-        f"💰 Изменилась цена: {new_item['title']}\n"
+        f"{prefix}💰 Изменилась цена: {new_item['title']}\n"
         f"{old_item['price']} ₽ → {new_item['price']} ₽\n"
         f"{new_item['url']}"
     )

@@ -18,15 +18,15 @@ from notify import notify_new_item, notify_price_change, console_log
 
 def process_items(conn, items):
     for item in items:
-        existing = db.get_listing(conn, item["id"])
+        existing = db.get_listing(conn, 1, item["id"])
         if existing is None:
-            db.upsert_new(conn, item)
+            db.upsert_new(conn, 1, item)
             notify_new_item(item)
         elif item["price"] is not None and existing["price"] != item["price"]:
             notify_price_change(existing, item)
-            db.update_price(conn, item["id"], item["price"])
+            db.update_price(conn, 1, item["id"], item["price"])
         else:
-            db.touch(conn, item["id"])
+            db.touch(conn, 1, item["id"])
 
 
 def main_loop(once: bool = False):
