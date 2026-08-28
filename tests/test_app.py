@@ -13,6 +13,7 @@ def conn():
     c.execute(db.SEEN_IDS_SCHEMA)
     c.execute(db.SEARCH_CONFIG_SCHEMA)
     c.execute(db.WORKER_STATUS_SCHEMA)
+    c.execute(db.CROSS_SESSION_CLAIMS_SCHEMA)
     c.commit()
     return c
 
@@ -38,18 +39,18 @@ def test_api_worker_pause_and_resume(client, conn):
     assert resp.status_code == 200
     assert resp.get_json()["paused"] is True
     assert resp.get_json()["pause_reason"] == "manual"
-    assert db.get_status(conn)["paused"] is True
+    assert db.get_status(conn, 1)["paused"] is True
 
     resp = client.post("/api/worker/resume")
     assert resp.status_code == 200
     assert resp.get_json()["paused"] is False
     assert resp.get_json()["pause_reason"] is None
-    assert db.get_status(conn)["paused"] is False
+    assert db.get_status(conn, 1)["paused"] is False
 
 
 def test_api_listings_returns_only_relevant_by_default(client, conn):
-    db.upsert_new(conn, {"id": "1", "title": "Relevant", "price": 100, "url": "u1", "relevant": 1})
-    db.upsert_new(conn, {"id": "2", "title": "Rejected", "price": 100, "url": "u2", "relevant": 0})
+    db.upsert_new(conn, 1, {"id": "1", "title": "Relevant", "price": 100, "url": "u1", "relevant": 1})
+    db.upsert_new(conn, 1, {"id": "2", "title": "Rejected", "price": 100, "url": "u2", "relevant": 0})
 
     resp = client.get("/api/listings")
     ids = [item["id"] for item in resp.get_json()]
@@ -70,11 +71,11 @@ def test_api_config_post_saves_config_and_calls_url_builder(client, conn, monkey
     assert resp.status_code == 200
     body = resp.get_json()
     assert body["search_url"] == "https://www.avito.ru/kazan/avtomobili?f=abc"
-    assert db.get_search_config(conn)["city"] == "kazan"
+    assert db.get_search_config(conn, 1)["city"] == "kazan"
 
 
 def test_api_config_post_returns_400_and_keeps_old_url_on_builder_failure(client, conn, monkeypatch):
-    db.save_search_config(conn, {"city": "kazan", "search_url": "https://old-url"})
+    db.save_search_config(conn, 1, {"city": "kazan", "search_url": "https://old-url"})
 
     def fail(**kwargs):
         raise RuntimeError("Playwright timeout")
@@ -83,12 +84,12 @@ def test_api_config_post_returns_400_and_keeps_old_url_on_builder_failure(client
     resp = client.post("/api/config", json={"city": "kazan"})
 
     assert resp.status_code == 400
-    assert db.get_search_config(conn)["search_url"] == "https://old-url"
+    assert db.get_search_config(conn, 1)["search_url"] == "https://old-url"
 
 
 def test_api_rescore_updates_relevance(client, conn, monkeypatch):
-    db.upsert_new(conn, {"id": "1", "title": "Kia Rio", "price": 700000, "url": "u1"})
-    db.save_search_config(conn, {"city": "kazan", "query_text": "тест"})
+    db.upsert_new(conn, 1, {"id": "1", "title": "Kia Rio", "price": 700000, "url": "u1"})
+    db.save_search_config(conn, 1, {"city": "kazan", "query_text": "тест"})
     monkeypatch.setattr(
         app_module.agent, "evaluate_listings",
         lambda items, query_text: {"1": {"relevant": True, "reason": "Подходит"}},
@@ -98,11 +99,11 @@ def test_api_rescore_updates_relevance(client, conn, monkeypatch):
 
     assert resp.status_code == 200
     assert resp.get_json() == {"rescored": 1}
-    assert db.get_listing(conn, "1")["relevant"] == 1
+    assert db.get_listing(conn, 1, "1")["relevant"] == 1
 
 
 def test_api_rescore_skips_agent_when_query_text_is_empty(client, conn, monkeypatch):
-    db.upsert_new(conn, {"id": "1", "title": "Kia Rio", "price": 700000, "url": "u1"})
+    db.upsert_new(conn, 1, {"id": "1", "title": "Kia Rio", "price": 700000, "url": "u1"})
 
     def fail_if_called(items, query_text):
         raise AssertionError("агент не должен вызываться при пустом критерии")
@@ -112,7 +113,7 @@ def test_api_rescore_skips_agent_when_query_text_is_empty(client, conn, monkeypa
 
     assert resp.status_code == 200
     assert resp.get_json() == {"rescored": 1}
-    assert db.get_listing(conn, "1")["relevant"] == 1
+    assert db.get_listing(conn, 1, "1")["relevant"] == 1
 
 
 def test_api_config_post_rejects_non_json_body(client):
@@ -149,3 +150,46 @@ def test_serve_frontend_falls_back_to_index_for_spa_routes(conn, tmp_path, monke
     resp_spa_route = client.get("/some/spa/route")
     assert resp_spa_route.status_code == 200
     assert b"SPA shell" in resp_spa_route.data
+
+
+def test_api_listings_session_1_and_2_are_independent(client, conn):
+    db.upsert_new(conn, 1, {"id": "1", "title": "Сессия 1", "price": 100, "url": "u1", "relevant": 1})
+    db.upsert_new(conn, 2, {"id": "2", "title": "Сессия 2", "price": 100, "url": "u2", "relevant": 1})
+
+    resp1 = client.get("/api/listings?session_id=1")
+    resp2 = client.get("/api/listings?session_id=2")
+
+    assert [i["id"] for i in resp1.get_json()] == ["1"]
+    assert [i["id"] for i in resp2.get_json()] == ["2"]
+
+
+def test_api_listings_defaults_to_session_1_without_param(client, conn):
+    db.upsert_new(conn, 1, {"id": "1", "title": "Сессия 1", "price": 100, "url": "u1", "relevant": 1})
+
+    resp = client.get("/api/listings")
+
+    assert [i["id"] for i in resp.get_json()] == ["1"]
+
+
+def test_api_listings_rejects_invalid_session_id(client):
+    resp = client.get("/api/listings?session_id=3")
+    assert resp.status_code == 400
+    assert "error" in resp.get_json()
+
+
+def test_api_config_post_stores_config_under_its_own_session(client, conn, monkeypatch):
+    monkeypatch.setattr(app_module, "build_search_url", lambda **kwargs: "https://example.com/2")
+
+    resp = client.post("/api/config", json={"session_id": 2, "city": "moskva"})
+
+    assert resp.status_code == 200
+    assert db.get_search_config(conn, 2)["city"] == "moskva"
+    assert db.get_search_config(conn, 1) is None
+
+
+def test_api_worker_pause_only_affects_its_own_session(client, conn):
+    resp = client.post("/api/worker/pause", json={"session_id": 2})
+
+    assert resp.status_code == 200
+    assert db.get_status(conn, 2)["paused"] is True
+    assert db.get_status(conn, 1)["paused"] is False
