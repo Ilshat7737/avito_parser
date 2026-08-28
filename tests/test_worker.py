@@ -121,7 +121,10 @@ def test_process_cycle_evicts_after_inserting_new_items(conn, monkeypatch):
     assert "0" not in remaining_ids  # самая старая запись вытеснена
 
 
-def test_process_cycle_writes_results_incrementally_per_chunk(conn, monkeypatch):
+def test_process_cycle_calls_agent_once_per_item_not_batched(conn, monkeypatch):
+    # Каждое объявление оценивается отдельным вызовом агента (список из
+    # одного элемента), а не одной пачкой на весь цикл — иначе новые
+    # карточки не появлялись бы на экране, пока не наберётся целая пачка.
     evaluate_calls = []
 
     def fake_evaluate(items, query_text):
@@ -132,23 +135,18 @@ def test_process_cycle_writes_results_incrementally_per_chunk(conn, monkeypatch)
 
     items = [
         {"id": str(i), "title": f"Item {i}", "price": 1000, "url": f"u{i}"}
-        for i in range(worker.CHUNK_SIZE + 5)  # больше одного чанка
+        for i in range(3)
     ]
 
     worker.process_cycle(conn, 1, items, "текст", fake_fetch_description)
 
-    # ровно два вызова агента (по чанкам), а не один на весь список
-    assert len(evaluate_calls) == 2
-    assert len(evaluate_calls[0]) == worker.CHUNK_SIZE
-    assert len(evaluate_calls[1]) == 5
-
-    # все объявления из обоих чанков в итоге сохранены
+    assert evaluate_calls == [["0"], ["1"], ["2"]]
     assert db.get_listing(conn, 1, "0") is not None
-    assert db.get_listing(conn, 1, str(worker.CHUNK_SIZE - 1)) is not None
-    assert db.get_listing(conn, 1, str(worker.CHUNK_SIZE + 4)) is not None
+    assert db.get_listing(conn, 1, "1") is not None
+    assert db.get_listing(conn, 1, "2") is not None
 
 
-def test_process_cycle_writes_first_chunk_before_fetching_second_chunk(conn, monkeypatch):
+def test_process_cycle_writes_each_item_before_fetching_the_next(conn, monkeypatch):
     order_log = []
 
     def fake_evaluate(items, query_text):
@@ -163,20 +161,19 @@ def test_process_cycle_writes_first_chunk_before_fetching_second_chunk(conn, mon
 
     items = [
         {"id": str(i), "title": f"Item {i}", "price": 1000, "url": f"u{i}"}
-        for i in range(worker.CHUNK_SIZE + 2)
+        for i in range(3)
     ]
 
     worker.process_cycle(conn, 1, items, "текст", logging_fetch_description)
 
-    # первый чанк должен быть оценён (evaluate) до того, как начнётся
-    # выборка описаний для второго чанка — иначе объявления первого
-    # чанка не появились бы в БД быстрее, чем весь цикл целиком
-    first_evaluate_index = next(i for i, c in enumerate(order_log) if c[0] == "evaluate")
-    second_chunk_fetch_index = next(
-        i for i, c in enumerate(order_log)
-        if c[0] == "fetch" and c[1] == f"u{worker.CHUNK_SIZE}"
-    )
-    assert first_evaluate_index < second_chunk_fetch_index
+    # объявление 0 должно быть оценено (evaluate) до того, как начнётся
+    # выборка описания для объявления 1 — иначе первое не появилось бы
+    # в БД быстрее, чем весь цикл целиком
+    assert order_log == [
+        ("fetch", "u0"), ("evaluate", ["0"]),
+        ("fetch", "u1"), ("evaluate", ["1"]),
+        ("fetch", "u2"), ("evaluate", ["2"]),
+    ]
 
 
 def test_run_search_cycle_pauses_on_detected_block(conn, monkeypatch):

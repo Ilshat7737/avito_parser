@@ -22,16 +22,6 @@ from notify import console_log, notify_new_item, notify_price_change
 from scraper import USER_AGENT, fetch_description, fetch_search_results, is_blocked_or_captcha
 
 PAUSE_POLL_SEC = 3
-# Размер группы для чанкинга описание+оценка+запись внутри одного цикла —
-# совпадает с agent.BATCH_SIZE, чтобы не увеличивать число вызовов агента
-# (каждая группа = ровно один вызов agent.evaluate_listings). Обрабатываем
-# по группам, а не всё сразу, чтобы уже готовые объявления появлялись на
-# экране (опрос /api/listings раз в 3 сек) по мере готовности, а не одним
-# большим куском в самом конце цикла — при MIN_DELAY/MAX_DELAY=20-30 сек
-# между запросами описаний цикл с десятками новых объявлений может идти
-# много минут, и ждать его целиком, прежде чем показать хоть что-то, не
-# годится.
-CHUNK_SIZE = agent.BATCH_SIZE
 
 
 def process_cycle(conn, session_id: int, items: list[dict], query_text: str, fetch_description_fn, keep: int = 100):
@@ -64,38 +54,42 @@ def process_cycle(conn, session_id: int, items: list[dict], query_text: str, fet
     stripped_query = query_text.strip()
     inserted_any = False
 
-    for start in range(0, len(new_items), CHUNK_SIZE):
-        chunk = new_items[start:start + CHUNK_SIZE]
-
-        for item in chunk:
-            try:
-                item["description"] = fetch_description_fn(item["url"])
-            except Exception:
-                item["description"] = ""
+    # Каждое объявление — описание, оценка, запись — обрабатывается и
+    # сохраняется по отдельности, а не пачкой: при MIN_DELAY/MAX_DELAY
+    # 20-30 сек между запросами описаний пачка даже в несколько штук
+    # держит новые карточки невидимыми на экране (опрос /api/listings
+    # раз в 3 сек) заметное время. Цена — до одного вызова
+    # agent.evaluate_listings на объявление вместо одного на пачку;
+    # обычный ритм скрапинга (объявление раз в 20-30 сек за счёт самого
+    # fetch_description) сам по себе держит вызовы агента дальше друг от
+    # друга, чем лимит запросов/минуту бесплатного тарифа Gemini.
+    for item in new_items:
+        try:
+            item["description"] = fetch_description_fn(item["url"])
+        except Exception:
+            item["description"] = ""
 
         if not stripped_query:
-            verdicts = {item["id"]: {"relevant": True, "reason": "критерий не задан"} for item in chunk}
+            verdict = {"relevant": True, "reason": "критерий не задан"}
         else:
-            verdicts = agent.evaluate_listings(chunk, stripped_query)
-
-        for item in chunk:
+            verdicts = agent.evaluate_listings([item], stripped_query)
             verdict = verdicts.get(item["id"])
             if verdict is None:
                 # Агент недоступен (ошибка API/сети) или не вернул вердикт
-                # для этого id (например, ответ обрезан по max_tokens) —
-                # не прячем объявление молча до следующего цикла: показываем
-                # его как есть, без оценки, а не теряем из-за временного
+                # (например, ответ обрезан по max_tokens) — не прячем
+                # объявление молча до следующего цикла: показываем его
+                # как есть, без оценки, а не теряем из-за временного
                 # сбоя стороннего сервиса.
                 verdict = {"relevant": True, "reason": "агент недоступен — показано без оценки"}
 
-            item["relevant"] = 1 if verdict["relevant"] else 0
-            item["relevance_reason"] = verdict["reason"]
-            db.upsert_new(conn, session_id, item)
-            db.mark_seen(conn, session_id, item["id"])
-            if verdict["relevant"]:
-                db.claim_for_session(conn, session_id, item["id"])
-                notify_new_item(item, session_id=session_id)
-            inserted_any = True
+        item["relevant"] = 1 if verdict["relevant"] else 0
+        item["relevance_reason"] = verdict["reason"]
+        db.upsert_new(conn, session_id, item)
+        db.mark_seen(conn, session_id, item["id"])
+        if verdict["relevant"]:
+            db.claim_for_session(conn, session_id, item["id"])
+            notify_new_item(item, session_id=session_id)
+        inserted_any = True
 
     if inserted_any:
         db.evict_old_listings(conn, session_id, keep=keep)
