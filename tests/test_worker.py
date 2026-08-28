@@ -72,14 +72,20 @@ def test_process_cycle_updates_price_for_known_listing(conn, monkeypatch):
     assert stored["price"] == 480000
 
 
-def test_process_cycle_leaves_item_unstored_when_agent_call_fails(conn, monkeypatch):
+def test_process_cycle_shows_item_unevaluated_when_agent_call_fails(conn, monkeypatch):
+    # Сбой агента (сеть, лимит, недоступность API) не должен молча прятать
+    # объявление до следующего цикла — показываем его как есть.
     monkeypatch.setattr(worker.agent, "evaluate_listings", lambda items, query_text: {})
     items = [{"id": "4", "title": "Новое", "price": 300000, "url": "u4"}]
 
     worker.process_cycle(conn, 1, items, "текст", fake_fetch_description)
 
-    assert db.get_listing(conn, 1, "4") is None
-    assert db.is_seen(conn, 1, "4") is False  # попробуем снова в следующем цикле
+    stored = db.get_listing(conn, 1, "4")
+    assert stored is not None
+    assert stored["relevant"] == 1
+    assert stored["relevance_reason"] == "агент недоступен — показано без оценки"
+    assert db.is_seen(conn, 1, "4") is True
+    assert db.is_claimed_by_other_session(conn, 2, "4") is True  # клеймится как релевантное
 
 
 def test_process_cycle_skips_agent_when_query_text_is_blank(conn, monkeypatch):

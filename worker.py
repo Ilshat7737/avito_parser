@@ -81,7 +81,12 @@ def process_cycle(conn, session_id: int, items: list[dict], query_text: str, fet
         for item in chunk:
             verdict = verdicts.get(item["id"])
             if verdict is None:
-                continue  # ошибка агента — попробуем снова в следующем цикле
+                # Агент недоступен (ошибка API/сети) или не вернул вердикт
+                # для этого id (например, ответ обрезан по max_tokens) —
+                # не прячем объявление молча до следующего цикла: показываем
+                # его как есть, без оценки, а не теряем из-за временного
+                # сбоя стороннего сервиса.
+                verdict = {"relevant": True, "reason": "агент недоступен — показано без оценки"}
 
             item["relevant"] = 1 if verdict["relevant"] else 0
             item["relevance_reason"] = verdict["reason"]
