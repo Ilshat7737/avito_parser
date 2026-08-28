@@ -5,6 +5,7 @@ import pytest
 
 import db
 import worker
+from worker import PAUSE_POLL_SEC
 
 
 @pytest.fixture
@@ -320,3 +321,70 @@ def test_background_loop_alternates_sessions_across_iterations(conn, monkeypatch
     worker.background_loop(conn, stop_event)
 
     assert processed_sessions == [1, 2, 1, 2]
+
+
+def test_background_loop_unconfigured_session_waits_pause_poll_sec_not_full_interval(conn, monkeypatch):
+    # Только сессия 1 настроена — сессия 2 никогда не открывалась
+    # пользователем в интерфейсе. Ход сессии 2 не должен "съедать"
+    # полный CHECK_INTERVAL_SEC, иначе сессия 1 эффективно опрашивается
+    # вдвое реже, чем до появления сессий (см. Fix 1).
+    db.save_search_config(conn, 1, {"city": "kazan", "search_url": "https://example.com/1"})
+
+    monkeypatch.setattr(worker, "run_cycle_with_safety", lambda conn, session_id, cycle_fn: 0)
+    monkeypatch.setattr(worker.config, "CHECK_INTERVAL_SEC", 100)
+    monkeypatch.setattr(worker.config, "INTERVAL_JITTER_SEC", 0)
+
+    stop_event = threading.Event()
+    delays = []
+    original_wait = stop_event.wait
+
+    def wait_and_stop_after(seconds):
+        delays.append(seconds)
+        if len(delays) >= 4:
+            stop_event.set()
+        return original_wait(0)
+
+    stop_event.wait = wait_and_stop_after
+    worker.background_loop(conn, stop_event)
+
+    # чередование: сессия 1 (настроена, полный интервал), сессия 2
+    # (не настроена, короткий PAUSE_POLL_SEC), ...
+    assert delays[0] == 100
+    assert delays[1] == PAUSE_POLL_SEC
+    assert delays[2] == 100
+    assert delays[3] == PAUSE_POLL_SEC
+
+
+def test_background_loop_does_not_starve_configured_session_when_other_is_paused(conn, monkeypatch):
+    # Сессия 1 на паузе, сессия 2 настроена — сессия 2 должна опрашиваться
+    # на обычном ритме, а не простаивать, пока сессия 1 стоит на паузе.
+    db.set_paused(conn, 1, True, "manual")
+    db.save_search_config(conn, 2, {"city": "moskva", "search_url": "https://example.com/2"})
+
+    processed_sessions = []
+
+    def fake_run_cycle_with_safety(conn, session_id, cycle_fn):
+        processed_sessions.append(session_id)
+        return 0
+
+    monkeypatch.setattr(worker, "run_cycle_with_safety", fake_run_cycle_with_safety)
+    monkeypatch.setattr(worker.config, "CHECK_INTERVAL_SEC", 0)
+    monkeypatch.setattr(worker.config, "INTERVAL_JITTER_SEC", 0)
+
+    stop_event = threading.Event()
+    call_count = {"n": 0}
+    original_wait = stop_event.wait
+
+    def wait_and_stop_after(seconds):
+        call_count["n"] += 1
+        if call_count["n"] >= 4:
+            stop_event.set()
+        return original_wait(0)
+
+    stop_event.wait = wait_and_stop_after
+    worker.background_loop(conn, stop_event)
+
+    # сессия 1 (на паузе) никогда не доходит до run_cycle_with_safety —
+    # только сессия 2 реально опрашивается, и делает это на каждой своей
+    # итерации, а не через раз
+    assert processed_sessions == [2, 2]

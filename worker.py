@@ -40,7 +40,7 @@ def process_cycle(conn, session_id: int, items: list[dict], query_text: str, fet
         existing = db.get_listing(conn, session_id, item["id"])
         if existing is not None:
             if item["price"] is not None and existing["price"] != item["price"]:
-                notify_price_change(existing, item)
+                notify_price_change(existing, item, session_id=session_id)
                 db.update_price(conn, session_id, item["id"], item["price"])
             else:
                 db.touch(conn, session_id, item["id"])
@@ -87,10 +87,10 @@ def process_cycle(conn, session_id: int, items: list[dict], query_text: str, fet
             item["relevance_reason"] = verdict["reason"]
             db.upsert_new(conn, session_id, item)
             db.mark_seen(conn, session_id, item["id"])
-            db.claim_for_session(conn, session_id, item["id"])
-            inserted_any = True
             if verdict["relevant"]:
-                notify_new_item(item)
+                db.claim_for_session(conn, session_id, item["id"])
+                notify_new_item(item, session_id=session_id)
+            inserted_any = True
 
     if inserted_any:
         db.evict_old_listings(conn, session_id, keep=keep)
@@ -148,6 +148,7 @@ def background_loop(conn, stop_event: threading.Event):
     from playwright.sync_api import sync_playwright
 
     current_session_id = 1
+    unconfigured_warned: set[int] = set()
 
     while not stop_event.is_set():
         session_id = current_session_id
@@ -160,6 +161,8 @@ def background_loop(conn, stop_event: threading.Event):
 
         cfg = db.get_search_config(conn, session_id)
         if cfg and cfg.get("search_url"):
+            unconfigured_warned.discard(session_id)
+
             def do_cycle(cfg=cfg, session_id=session_id):
                 with sync_playwright() as p:
                     browser = p.chromium.launch(headless=config.HEADLESS)
@@ -175,8 +178,11 @@ def background_loop(conn, stop_event: threading.Event):
             if count is not None:
                 db.set_last_check(conn, session_id, count=count)
                 console_log(f"[Сессия {session_id}] Проверено объявлений: {count}")
-        else:
-            console_log(f"[Сессия {session_id}] Поиск ещё не настроен — жду настроек через веб-интерфейс")
 
-        delay = config.CHECK_INTERVAL_SEC + random.uniform(0, config.INTERVAL_JITTER_SEC)
-        stop_event.wait(delay)
+            delay = config.CHECK_INTERVAL_SEC + random.uniform(0, config.INTERVAL_JITTER_SEC)
+            stop_event.wait(delay)
+        else:
+            if session_id not in unconfigured_warned:
+                unconfigured_warned.add(session_id)
+                console_log(f"[Сессия {session_id}] Поиск ещё не настроен — жду настроек через веб-интерфейс")
+            stop_event.wait(PAUSE_POLL_SEC)
