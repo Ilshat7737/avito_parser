@@ -12,8 +12,12 @@ export function StatusBar({ status }: { status: Status }) {
 
   return (
     <div
-      className={`flex items-center gap-2 text-sm font-mono px-3 py-2 rounded-lg ${
-        status.paused ? "bg-white/10" : stale ? "bg-danger/20 text-danger" : "bg-white/5"
+      className={`flex items-center gap-2 rounded-xl px-3.5 py-2 text-sm font-mono ${
+        status.paused
+          ? "bg-amber-400/15 text-amber-500"
+          : stale
+            ? "bg-danger/15 text-danger"
+            : "bg-[hsl(var(--foreground))]/5"
       }`}
     >
       {status.scanning && !status.paused && (

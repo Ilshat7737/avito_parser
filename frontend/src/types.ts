@@ -1,3 +1,5 @@
+export type SessionId = 1 | 2;
+
 export interface Listing {
   id: string;
   title: string;
@@ -16,6 +18,8 @@ export interface Listing {
 }
 
 export interface SearchConfig {
+  session_id: SessionId;
+  label: string | null;
   city: string;
   brand: string | null;
   price_min: number | null;
@@ -36,4 +40,10 @@ export interface Status {
   pause_reason: string | null;
   last_error: string | null;
   scanning: boolean;
+}
+
+export interface SessionSummary {
+  session_id: SessionId;
+  config: Partial<SearchConfig> | null;
+  status: Status;
 }

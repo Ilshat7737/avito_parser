@@ -115,6 +115,46 @@ def test_api_rescore_skips_agent_when_query_text_is_empty(client, conn, monkeypa
     assert db.get_listing(conn, "1")["relevant"] == 1
 
 
+def test_api_endpoints_are_isolated_per_session_query_param(client, conn):
+    db.upsert_new(conn, {"id": "1", "title": "Сессия 1", "price": 100, "url": "u1", "relevant": 1}, session_id=1)
+    db.upsert_new(conn, {"id": "2", "title": "Сессия 2", "price": 100, "url": "u2", "relevant": 1}, session_id=2)
+    db.set_paused(conn, True, "manual", session_id=2)
+
+    resp1 = client.get("/api/listings?session=1")
+    resp2 = client.get("/api/listings?session=2")
+    assert [i["id"] for i in resp1.get_json()] == ["1"]
+    assert [i["id"] for i in resp2.get_json()] == ["2"]
+
+    status1 = client.get("/api/status?session=1").get_json()
+    status2 = client.get("/api/status?session=2").get_json()
+    assert status1["paused"] is False
+    assert status2["paused"] is True
+
+
+def test_api_config_post_with_session_param_only_touches_that_session(client, conn, monkeypatch):
+    monkeypatch.setattr(
+        app_module, "build_search_url",
+        lambda **kwargs: "https://www.avito.ru/kazan/avtomobili?f=abc",
+    )
+    resp = client.post("/api/config?session=2", json={"city": "kazan", "label": "Окно 2"})
+    assert resp.status_code == 200
+    assert resp.get_json()["city"] == "kazan"
+
+    assert db.get_search_config(conn, session_id=2)["city"] == "kazan"
+    assert db.get_search_config(conn, session_id=1) is None
+
+
+def test_api_sessions_returns_summary_for_both_sessions(client, conn):
+    db.save_search_config(conn, {"city": "kazan", "label": "Окно 1"}, session_id=1)
+
+    resp = client.get("/api/sessions")
+    assert resp.status_code == 200
+    body = resp.get_json()
+    assert {row["session_id"] for row in body} == {1, 2}
+    session1 = next(row for row in body if row["session_id"] == 1)
+    assert session1["config"]["city"] == "kazan"
+
+
 def test_api_config_post_rejects_non_json_body(client):
     resp = client.post("/api/config", data="not json", content_type="text/plain")
     assert resp.status_code == 400

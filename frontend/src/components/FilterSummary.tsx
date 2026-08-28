@@ -11,7 +11,7 @@ function formatRange(min: number | null | undefined, max: number | null | undefi
 export function FilterSummary({ config }: { config: Partial<SearchConfig> }) {
   if (!config.search_url) {
     return (
-      <div className="rounded-xl bg-[hsl(var(--card))] px-4 py-3 text-sm text-[hsl(var(--foreground))]/70">
+      <div className="glass-panel rounded-xl px-4 py-3 text-sm text-[hsl(var(--foreground))]/70">
         Поиск ещё не настроен — заполните форму ниже и нажмите «Сохранить».
       </div>
     );
@@ -30,7 +30,7 @@ export function FilterSummary({ config }: { config: Partial<SearchConfig> }) {
   ].filter(Boolean) as string[];
 
   return (
-    <div className="rounded-xl bg-[hsl(var(--card))] px-4 py-3">
+    <div className="glass-panel rounded-xl px-4 py-3">
       <div className="text-xs uppercase tracking-wide text-[hsl(var(--foreground))]/50 mb-1">
         Активный поиск
       </div>

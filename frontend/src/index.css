@@ -22,35 +22,72 @@
   --border: 214 32% 91%;
   --input: 214 32% 91%;
   --ring: 142 71% 45%;
-  --radius: 0.75rem;
+  --radius: 0.875rem;
+
+  /* Акцентные цвета сессий — окно 1 (изумрудный, тот же тон, что общий
+     --accent) и окно 2 (голубой) визуально различают две параллельные
+     поисковые сессии в переключателе вкладок и в карточках объявлений. */
+  --session-1: 142 71% 45%;
+  --session-2: 199 89% 55%;
 }
 
 .dark {
-  --background: 222 47% 11%;
+  --background: 222 47% 9%;
   --foreground: 210 40% 98%;
-  --card: 217 33% 17%;
+  --card: 217 33% 15%;
   --card-foreground: 210 40% 98%;
   --accent: 142 71% 45%;
-  --danger: 0 84% 60%;
-  --popover: 217 33% 17%;
+  --danger: 0 84% 65%;
+  --popover: 217 33% 15%;
   --popover-foreground: 210 40% 98%;
   --primary: 142 71% 45%;
   --primary-foreground: 222 47% 11%;
-  --secondary: 217 33% 17%;
+  --secondary: 217 33% 20%;
   --secondary-foreground: 210 40% 98%;
-  --muted: 217 33% 17%;
+  --muted: 217 33% 19%;
   --muted-foreground: 215 20% 65%;
   --destructive: 0 84% 60%;
   --destructive-foreground: 210 40% 98%;
   --border: 217 33% 24%;
   --input: 217 33% 24%;
   --ring: 142 71% 45%;
+
+  --session-1: 142 71% 50%;
+  --session-2: 199 89% 60%;
+}
+
+* {
+  border-color: hsl(var(--border));
 }
 
 body {
-  background-color: hsl(var(--background));
+  background:
+    radial-gradient(circle at 12% -10%, hsl(var(--session-1) / 0.16), transparent 42%),
+    radial-gradient(circle at 92% 0%, hsl(var(--session-2) / 0.14), transparent 40%),
+    hsl(var(--background));
+  background-attachment: fixed;
   color: hsl(var(--foreground));
   font-family: "Fira Sans", system-ui, sans-serif;
+  min-height: 100vh;
+}
+
+::selection {
+  background: hsl(var(--accent) / 0.35);
+}
+
+/* Тонкий "стеклянный" вид карточек поверх градиентного фона. */
+.glass-panel {
+  background: hsl(var(--card) / 0.72);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid hsl(var(--border) / 0.8);
+}
+
+.text-gradient {
+  background: linear-gradient(120deg, hsl(var(--session-1)), hsl(var(--session-2)));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
 }
 
 @media (prefers-reduced-motion: reduce) {

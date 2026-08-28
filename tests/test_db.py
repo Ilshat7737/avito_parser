@@ -206,6 +206,51 @@ def test_get_all_listings_returns_every_row_regardless_of_relevance(conn):
     assert {item["id"] for item in all_listings} == {"1", "2", "3"}
 
 
+def test_listings_are_isolated_per_session(conn):
+    db.upsert_new(conn, {"id": "1", "title": "Сессия 1", "price": 100, "url": "u1"}, session_id=1)
+    db.upsert_new(conn, {"id": "1", "title": "Сессия 2 (тот же id)", "price": 200, "url": "u2"}, session_id=2)
+
+    assert db.get_listing(conn, "1", session_id=1)["title"] == "Сессия 1"
+    assert db.get_listing(conn, "1", session_id=2)["title"] == "Сессия 2 (тот же id)"
+    assert [i["id"] for i in db.get_all_listings(conn, session_id=1)] == ["1"]
+    assert [i["id"] for i in db.get_all_listings(conn, session_id=2)] == ["1"]
+
+
+def test_search_config_and_worker_status_isolated_per_session(conn):
+    db.save_search_config(conn, {"city": "kazan", "label": "Окно 1"}, session_id=1)
+    db.save_search_config(conn, {"city": "moskva", "label": "Окно 2"}, session_id=2)
+
+    assert db.get_search_config(conn, session_id=1)["city"] == "kazan"
+    assert db.get_search_config(conn, session_id=2)["city"] == "moskva"
+
+    db.set_paused(conn, True, "manual", session_id=1)
+    assert db.get_status(conn, session_id=1)["paused"] is True
+    assert db.get_status(conn, session_id=2)["paused"] is False
+
+
+def test_recently_seen_elsewhere_detects_other_session_within_window(conn):
+    db.mark_seen(conn, "42", session_id=1)
+
+    assert db.recently_seen_elsewhere(conn, "42", session_id=2, hours=24) is True
+    # своя же сессия не считается "другой"
+    assert db.recently_seen_elsewhere(conn, "42", session_id=1, hours=24) is False
+    # id, которого никто не видел, не пересекается
+    assert db.recently_seen_elsewhere(conn, "999", session_id=2, hours=24) is False
+
+
+def test_recently_seen_elsewhere_ignores_entries_older_than_window(conn):
+    from datetime import datetime, timedelta
+
+    old_ts = (datetime.now() - timedelta(hours=25)).isoformat(timespec="seconds")
+    conn.execute(
+        "INSERT INTO seen_ids (id, session_id, first_seen) VALUES (?, ?, ?)",
+        ("42", 1, old_ts),
+    )
+    conn.commit()
+
+    assert db.recently_seen_elsewhere(conn, "42", session_id=2, hours=24) is False
+
+
 def test_get_conn_migrates_old_worker_status_schema(tmp_path):
     # Симулируем файл БД от старой версии кода: только id/last_check/last_count,
     # без paused/pause_reason/last_error/scanning.
@@ -233,3 +278,49 @@ def test_get_conn_migrates_old_worker_status_schema(tmp_path):
     # и новые функции теперь работают без sqlite3.OperationalError
     db.set_paused(conn, True, "manual")
     assert db.get_status(conn)["paused"] is True
+
+
+def test_get_conn_migrates_old_listings_and_search_config_schema(tmp_path):
+    # Файл БД от версии кода до многосессионного режима: listings PK по
+    # id (без session_id), search_config — одна строка id=1 (без session_id).
+    db_path = str(tmp_path / "old.db")
+    old_conn = sqlite3.connect(db_path)
+    old_conn.execute(
+        """CREATE TABLE listings (
+               id TEXT PRIMARY KEY, title TEXT, price INTEGER, url TEXT,
+               photo TEXT, description TEXT, year INTEGER, mileage INTEGER,
+               relevant INTEGER, relevance_reason TEXT, agent_evaluated_at TEXT,
+               first_seen TEXT, last_price INTEGER, last_checked TEXT
+           )"""
+    )
+    old_conn.execute(
+        "INSERT INTO listings (id, title, price, url, first_seen, last_price, last_checked) "
+        "VALUES ('1', 'Старое объявление', 500000, 'u1', '2026-01-01T00:00:00', 500000, '2026-01-01T00:00:00')"
+    )
+    old_conn.execute(
+        """CREATE TABLE search_config (
+               id INTEGER PRIMARY KEY CHECK (id = 1), city TEXT, brand TEXT,
+               price_min INTEGER, price_max INTEGER, mileage_min INTEGER,
+               mileage_max INTEGER, year_min INTEGER, year_max INTEGER,
+               query_text TEXT, search_url TEXT, updated_at TEXT
+           )"""
+    )
+    old_conn.execute(
+        "INSERT INTO search_config (id, city, search_url) VALUES (1, 'kazan', 'https://old-url')"
+    )
+    old_conn.commit()
+    old_conn.close()
+
+    conn = db.get_conn(db_path)
+
+    stored = db.get_listing(conn, "1", session_id=1)
+    assert stored is not None
+    assert stored["title"] == "Старое объявление"
+
+    cfg = db.get_search_config(conn, session_id=1)
+    assert cfg["city"] == "kazan"
+    assert cfg["search_url"] == "https://old-url"
+
+    # вторая сессия свободна и не видит данные первой
+    assert db.get_listing(conn, "1", session_id=2) is None
+    assert db.get_search_config(conn, session_id=2) is None

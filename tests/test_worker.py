@@ -170,6 +170,63 @@ def test_process_cycle_writes_first_chunk_before_fetching_second_chunk(conn, mon
     assert first_evaluate_index < second_chunk_fetch_index
 
 
+def test_process_cycle_skips_item_recently_seen_by_other_session(conn, monkeypatch):
+    # Сессия 1 уже обработала это объявление недавно.
+    db.mark_seen(conn, "5", session_id=1)
+
+    called = {"fetch": False, "agent": False}
+
+    def spy_fetch(url):
+        called["fetch"] = True
+        return "описание"
+
+    def spy_evaluate(items, query_text):
+        called["agent"] = True
+        return {}
+
+    monkeypatch.setattr(worker.agent, "evaluate_listings", spy_evaluate)
+    items = [{"id": "5", "title": "Пересекающееся объявление", "price": 100000, "url": "u5"}]
+
+    # Сессия 2 видит то же объявление впервые.
+    worker.process_cycle(conn, items, "текст", spy_fetch, session_id=2)
+
+    assert called["fetch"] is False  # описание не скачивалось повторно
+    assert called["agent"] is False  # агент не вызывался повторно
+    assert db.get_listing(conn, "5", session_id=2) is None  # не появилось в её листингах
+    assert db.is_seen(conn, "5", session_id=2) is True  # но отмечено виденным для неё тоже
+
+
+def test_process_cycle_reprocesses_item_after_cross_session_window_expires(conn, monkeypatch):
+    from datetime import datetime, timedelta
+
+    old_ts = (datetime.now() - timedelta(hours=25)).isoformat(timespec="seconds")
+    conn.execute("INSERT INTO seen_ids (id, session_id, first_seen) VALUES ('6', 1, ?)", (old_ts,))
+    conn.commit()
+
+    monkeypatch.setattr(
+        worker.agent, "evaluate_listings",
+        lambda items, query_text: {"6": {"relevant": True, "reason": "ok"}},
+    )
+    items = [{"id": "6", "title": "Старая пересечка", "price": 100000, "url": "u6"}]
+
+    worker.process_cycle(conn, items, "текст", fake_fetch_description, session_id=2)
+
+    assert db.get_listing(conn, "6", session_id=2) is not None
+
+
+def test_process_cycle_isolates_listings_by_session(conn, monkeypatch):
+    monkeypatch.setattr(
+        worker.agent, "evaluate_listings",
+        lambda items, query_text: {"7": {"relevant": True, "reason": "ok"}},
+    )
+    items = [{"id": "7", "title": "Только для сессии 1", "price": 100000, "url": "u7"}]
+
+    worker.process_cycle(conn, items, "текст", fake_fetch_description, session_id=1)
+
+    assert db.get_listing(conn, "7", session_id=1) is not None
+    assert db.get_listing(conn, "7", session_id=2) is None
+
+
 def test_run_search_cycle_pauses_on_detected_block(conn, monkeypatch):
     def raise_timeout(page, url):
         raise Exception('Timeout waiting for [data-marker="item"]')

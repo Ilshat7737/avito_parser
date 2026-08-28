@@ -39,6 +39,8 @@ export default {
         border: "hsl(var(--border))",
         input: "hsl(var(--input))",
         ring: "hsl(var(--ring))",
+        "session-1": "hsl(var(--session-1))",
+        "session-2": "hsl(var(--session-2))",
       },
       fontFamily: {
         sans: ["Fira Sans", "system-ui", "sans-serif"],
